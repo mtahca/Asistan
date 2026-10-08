@@ -1,0 +1,22 @@
+# Gizli / kişisel veriler: asla commit edilmez
+.env
+.env.*
+!.env.example
+*.log
+*.previous
+notlar/
+sesler_cache/
+debug_ses/
+summary_jobs/
+yedek/
+tani_banner.txt
+go.flag
+asistan_tercihleri.json
+
+# Derleme ve ortam
+.venv/
+__pycache__/
+*.pyc
+Asistan.app/
+Asistan.zip
+.DS_Store

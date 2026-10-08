@@ -1,0 +1,7 @@
+numpy
+sounddevice
+anthropic
+ema-lightning
+mlx-whisper
+openai>=1.40
+websockets>=13
