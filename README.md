@@ -15,5 +15,8 @@ macOS menü çubuğunda çalışan, yönlendirilen **FaceTime ve WhatsApp sesli 
 3. `.env.example` dosyasını `.env` olarak kopyalayın ya da uygulamadaki **Asistan ayarları** penceresinden model ve API anahtarlarını girin.
 4. Ayrıntılar: [KURULUM.md](KURULUM.md) ve [AYARLAR.md](AYARLAR.md).
 
+## iPhone'dan izleme
+Canlı metin penceresi iPhone'daki **Asistan Canlı** uygulamasından da izlenebilir ([Asistan-Mobile](https://github.com/mtahca/Asistan-Mobile)). Telefondan asistana talimat yazılabilir ve görüşme sonlandırılabilir. Menüden **iPhone'dan izle…** → **Aç** seçilir, gösterilen 8 haneli kod iPhone'a girilir. Bağlantı yalnızca yerel ağdadır ve bu kodla şifrelenir (TLS-PSK). Özellik varsayılan olarak kapalıdır.
+
 ## Gizlilik
 API anahtarları ve kişisel veriler (`.env`, notlar, günlükler, ses kayıtları) bu depoya dahil değildir; `.gitignore` bunları dışarıda tutar. Görüşme metni ve arayan bilgisi, seçilen sağlayıcıya (Anthropic / OpenAI) yanıt ve özet için gönderilir.

@@ -5,7 +5,7 @@ cd "$(dirname "$0")"
 APP="Asistan.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS"
-swiftc -O -o "$APP/Contents/MacOS/Asistan" app/main.swift
+swiftc -O -o "$APP/Contents/MacOS/Asistan" app/main.swift app/MobileBridge.swift
 cp app/Info.plist "$APP/Contents/Info.plist"
 # Kaynaklar: ajan, kurulum betiği, bağımlılık listesi, ses dosyaları
 RES="$APP/Contents/Resources"

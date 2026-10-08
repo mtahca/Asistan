@@ -14,5 +14,7 @@
     <key>LSUIElement</key><true/>
     <key>NSMicrophoneUsageDescription</key><string>Asistan, aramadaki sesi dinlemek için mikrofon/ses girişine erişir.</string>
     <key>NSContactsUsageDescription</key><string>Asistan, gelen aramada arayanin adini ve numarasini bulmak icin Rehbere bakar.</string>
+    <key>NSLocalNetworkUsageDescription</key><string>Asistan, canlı görüşme metnini yerel ağdaki iPhone'unuza (Asistan Canlı) gönderir.</string>
+    <key>NSBonjourServices</key><array><string>_asistan-canli._tcp</string></array>
 </dict>
 </plist>

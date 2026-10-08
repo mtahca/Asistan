@@ -864,6 +864,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var sessionStartedAt: Date?
     var sessionCaller = ""
     var modeCache: (Date, String) = (.distantPast, "")
+    lazy var mobile = MobileBridge()   // canlı metni iPhone'daki Asistan Canlı uygulamasına yayınlar
+    var mobileItem: NSMenuItem!
 
     func applicationDidFinishLaunching(_ n: Notification) {
         resolveProjectDir()
@@ -893,6 +895,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         buildStatusItem()
         buildPanel()
         buildLiveWindow()
+        mobile.onNote = { [weak self] t in self?.deliverNote(t, fromPhone: true) }
+        mobile.onEnd = { [weak self] in self?.endSession() }
+        mobile.onClientsChanged = { [weak self] in self?.refreshMobileItem() }
         let st = setupStatus()
         if st.audio && st.py && st.key { startAgent() } else { showSetup() }
         Timer.scheduledTimer(withTimeInterval: 0.4, repeats: true) { [weak self] _ in self?.tick() }
@@ -1105,6 +1110,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         dndItem.state = dndAuto ? .on : .off
         menu.addItem(.separator())
         _ = add("Canlı metin penceresini aç", #selector(openLiveWindow), "l")
+        mobileItem = add("iPhone'dan izle…", #selector(showMobileBridge))
+        refreshMobileItem()
         takeItem = add("Görüşmeyi devral (asistan çıkar)", #selector(takeOver), "d")
         endItem = add("Görüşmeyi sonlandır (asistan susar)", #selector(endSession), "e")
         menu.addItem(.separator())
@@ -1175,6 +1182,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             title += " — " + (sessionCaller.isEmpty ? "arayan" : sessionCaller) + " · \(sec / 60):" + (ss < 10 ? "0" : "") + "\(ss)"
         }
         if w.title != title { w.title = title }
+        mobile.setState(inSession: inSession, caller: sessionCaller, startedAt: sessionStartedAt, status: statusLine.title)
     }
 
     func updateStatus() {
@@ -1319,29 +1327,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .font: NSFont.systemFont(ofSize: 13), .foregroundColor: NSColor.labelColor]))
         liveText.textStorage?.append(a)
         liveText.scrollToEndOfDocument(nil)
+        let kind = color == .systemBlue ? "caller" : color == .systemOrange ? "interrupted" : color == .systemPurple ? "you" : "assistant"
+        mobile.append(kind: kind, speaker: speaker, text: text)
     }
 
     func appendLiveNote(_ text: String) {
         liveText.textStorage?.append(NSAttributedString(string: text + "\n\n", attributes: [
             .font: NSFont.systemFont(ofSize: 12), .foregroundColor: NSColor.secondaryLabelColor]))
         liveText.scrollToEndOfDocument(nil)
+        mobile.append(kind: "note", speaker: "", text: text)
     }
 
     /// Yazılan notu çalışan ajana iletir; ajan bunu konuşmanın akışında arayana söyler
     @objc func sendNote() {
-        let text = noteField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
+        if deliverNote(noteField.stringValue) { noteField.stringValue = "" }
+    }
+
+    /// Notu ajana iletir (Mac penceresinden ya da iPhone'dan); gönderildiyse true
+    @discardableResult
+    func deliverNote(_ raw: String, fromPhone: Bool = false) -> Bool {
+        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return false }
         guard inSession else {
             appendLiveNote("Not gönderilemedi: şu an görüşme yok.")
-            return
+            return false
         }
         let oneLine = text.replacingOccurrences(of: "\n", with: " ")
         if let data = ("NOT:" + oneLine + "\n").data(using: .utf8) {
             try? agentInput?.write(contentsOf: data)
         }
-        noteField.stringValue = ""
-        appendLive("Senin talimatın", oneLine + "  (asistana talimat olarak gönderildi)", color: .systemPurple)
-        logLine("Not gönderildi: \(oneLine)")
+        appendLive("Senin talimatın", oneLine + "  (asistana talimat olarak gönderildi" + (fromPhone ? ", iPhone'dan)" : ")"), color: .systemPurple)
+        logLine("Not gönderildi\(fromPhone ? " (iPhone)" : ""): \(oneLine)")
+        return true
     }
 
     /// Görüşmeyi devral: asistan kısa bir geçiş cümlesi söyler, çıkar; ses cihazları eski haline döner, arama açık kalır
@@ -1484,6 +1501,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     @objc func openLiveWindow() { liveWindow.orderFrontRegardless() }
 
+    func refreshMobileItem() {
+        guard let it = mobileItem else { return }
+        it.state = mobile.enabled ? .on : .off
+        let n = mobile.clientCount
+        it.title = "iPhone'dan izle…" + (mobile.enabled && n > 0 ? " (\(n) cihaz bağlı)" : "")
+    }
+
+    /// iPhone köprüsü: aç/kapat, eşleştirme kodunu göster/yenile
+    @objc func showMobileBridge() {
+        NSApp.activate(ignoringOtherApps: true)
+        let a = NSAlert()
+        a.messageText = "iPhone'dan canlı metni izle"
+        if mobile.enabled {
+            a.informativeText = "Açık. iPhone'da Asistan Canlı uygulamasını açın; Mac aynı Wi-Fi ağında otomatik bulunur.\n\n"
+                + "Eşleştirme kodu:  \(mobile.displayCode)\n\n"
+                + "Bağlı cihaz: \(mobile.clientCount). Bağlantı bu kodla şifrelenir; kodu yenilerseniz bağlı cihazların kodu yeniden girmesi gerekir."
+            a.addButton(withTitle: "Tamam")
+            a.addButton(withTitle: "Kapat (yayını durdur)")
+            a.addButton(withTitle: "Yeni kod üret")
+        } else {
+            a.informativeText = "Açtığınızda görüşmenin canlı metni yerel ağdaki iPhone'unuza (Asistan Canlı uygulaması) şifreli olarak gönderilir. "
+                + "iPhone'dan asistana talimat yazabilir ve görüşmeyi sonlandırabilirsiniz.\n\nmacOS gelen bağlantılar ya da yerel ağ için izin sorabilir; izin verin."
+            a.addButton(withTitle: "Aç")
+            a.addButton(withTitle: "Vazgeç")
+        }
+        let r = a.runModal()
+        if mobile.enabled {
+            if r == .alertSecondButtonReturn { mobile.setEnabled(false) }
+            else if r == .alertThirdButtonReturn { mobile.regenerateCode(); showMobileBridge(); return }
+        } else if r == .alertFirstButtonReturn {
+            mobile.setEnabled(true)
+            refreshMobileItem()
+            showMobileBridge()
+            return
+        }
+        refreshMobileItem()
+    }
+
     /// Ajan çıktısındaki satırı ("[13:58:08] ARAYAN: ...") canlı pencereye yansıtır
     func updateLive(_ line: String) {
         var msg = line
@@ -1491,6 +1546,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         msg = msg.trimmingCharacters(in: .whitespaces)
         if msg.contains("ARAMA OTURUMU BAŞLADI") {
             liveText.string = ""
+            mobile.reset()
             if showLive { liveWindow.orderFrontRegardless() }
         } else if msg.hasPrefix("arayan: ") {
             appendLiveNote("Arayan: " + String(msg.dropFirst("arayan: ".count)))
