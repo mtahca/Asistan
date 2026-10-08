@@ -109,6 +109,7 @@ final class MobileClient {
 final class MobileBridge {
     var onNote: ((String) -> Void)?
     var onEnd: (() -> Void)?
+    var onAnswer: (() -> Void)?   // iPhone'dan "asistanla cevapla" komutu
     var onClientsChanged: (() -> Void)?
 
     private(set) var enabled = UserDefaults.standard.bool(forKey: "mobileBridge")
@@ -210,6 +211,8 @@ final class MobileBridge {
             if let text = obj["text"] as? String { onNote?(String(text.prefix(2000))) }
         case "end":
             onEnd?()
+        case "answer":
+            onAnswer?()
         case "ping":
             c.send(["t": "pong"])
         default: break
@@ -240,8 +243,9 @@ final class MobileBridge {
     }
 
     /// Yalnızca değiştiğinde yayınlar (her tick'te çağrılabilir)
-    func setState(inSession: Bool, caller: String, startedAt: Date?, status: String) {
-        var s: [String: Any] = ["t": "state", "inSession": inSession, "caller": caller, "status": status]
+    func setState(inSession: Bool, caller: String, startedAt: Date?, status: String, ringing: Bool = false, ringer: String = "") {
+        var s: [String: Any] = ["t": "state", "inSession": inSession, "caller": caller, "status": status,
+                                "ringing": ringing, "ringer": ringer]
         if let t = startedAt, inSession { s["startedAt"] = t.timeIntervalSince1970 }
         if NSDictionary(dictionary: s).isEqual(to: state) { return }
         state = s

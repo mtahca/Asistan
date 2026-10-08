@@ -633,7 +633,7 @@ func ocrBanner(frame: CGRect) -> [String] {
     }
     let langs = ["tr-TR", "en-US"].filter { supported.contains($0) }
     if !langs.isEmpty { req.recognitionLanguages = langs }
-    req.customWords = contactWords()     // Rehber adları (rehberdeki kısa adlar, soyadlar …) tanımayı doğru kelimeye çeker
+    req.customWords = contactWords()     // Rehber adları (Aşkım, Tahça …) tanımayı doğru kelimeye çeker
     try? VNImageRequestHandler(cgImage: cg, options: [:]).perform([req])
     return lines
 }
@@ -866,6 +866,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var modeCache: (Date, String) = (.distantPast, "")
     lazy var mobile = MobileBridge()   // canlı metni iPhone'daki Asistan Canlı uygulamasına yayınlar
     var mobileItem: NSMenuItem!
+    var phoneOffer = false     // gelen arama çalıyor ve asistan cevaplayabilir: iPhone'a "cevapla" düğmesi gösterilir
+    var phoneOfferName = ""
 
     func applicationDidFinishLaunching(_ n: Notification) {
         resolveProjectDir()
@@ -897,6 +899,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         buildLiveWindow()
         mobile.onNote = { [weak self] t in self?.deliverNote(t, fromPhone: true) }
         mobile.onEnd = { [weak self] in self?.endSession() }
+        mobile.onAnswer = { [weak self] in self?.answerFromPhone() }
         mobile.onClientsChanged = { [weak self] in self?.refreshMobileItem() }
         let st = setupStatus()
         if st.audio && st.py && st.key { startAgent() } else { showSetup() }
@@ -1182,7 +1185,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             title += " — " + (sessionCaller.isEmpty ? "arayan" : sessionCaller) + " · \(sec / 60):" + (ss < 10 ? "0" : "") + "\(ss)"
         }
         if w.title != title { w.title = title }
-        mobile.setState(inSession: inSession, caller: sessionCaller, startedAt: sessionStartedAt, status: statusLine.title)
+        mobile.setState(inSession: inSession, caller: sessionCaller, startedAt: sessionStartedAt, status: statusLine.title,
+                        ringing: phoneOffer, ringer: phoneOfferName)
     }
 
     func updateStatus() {
@@ -1674,6 +1678,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if incoming { bannerSource = r.source }
         if missing > 5 { ocrGot = false; ocrTries = 0; bannerDiagDone = false; bannerLogged = false; bannerTexts = []; lastTextCount = -1 }
 
+        // iPhone'a "cevapla" önerisi: Odak (Rahatsız Etme) durumundan bağımsız
+        let offer = incoming && !answered && !busy && !inSession && !paused && agentReady
+        let ringInfo = extractCaller(from: bannerTexts)
+        let offerName = offer ? (ringInfo.name.isEmpty ? ringInfo.number : ringInfo.name) : ""
+        if offer != phoneOffer || offerName != phoneOfferName { phoneOffer = offer; phoneOfferName = offerName }
         refreshLiveChrome()
         if incoming && !answered && !dismissed && !paused {
             showPanel()
@@ -1746,12 +1755,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// iPhone'dan gelen "asistanla cevapla" komutu (Odak açık olmasa da çalışır)
+    func answerFromPhone() {
+        guard phoneOffer, !busy, !inSession else {
+            logLine("iPhone'dan cevapla komutu geldi ama şu an cevaplanacak arama yok")
+            appendLiveNote("Cevapla komutu: şu an cevaplanacak bir arama yok.")
+            return
+        }
+        logLine("iPhone'dan cevapla komutu alındı")
+        answerWithAssistant()
+    }
+
     @objc func answerWithAssistant() {
         guard agentReady, !busy else { return }
         guard loopbackAudioReady() else {
             answered = true   // bu arama için tekrar tekrar uyarma
             let st = loopbackStatus()
             logLine("Loopback aygıtları hazır değil (dinleme=\(st.listen), mikrofon=\(st.mic), çıkış=\(st.playback)); arama cevaplanmadı")
+            appendLiveNote("Arama asistanla cevaplanamadı: Loopback aygıtları hazır değil.")
             notify("Arama asistanla cevaplanamadı", "Loopback'te Asistan Dinleme, Asistan Mikrofonu ve Asistan Ses Çıkışı aygıtlarını açın.")
             return
         }
@@ -1790,6 +1811,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 logLine("Cevapla düğmesi bulunamadı")
                 self.busy = false
                 self.answered = false
+                self.appendLiveNote("Arama cevaplanamadı: bildirimdeki cevapla düğmesi bulunamadı.")
                 self.notify("Arama cevaplanamadı", "Bildirimdeki cevapla düğmesi bulunamadı.")
                 self.updateStatus()
             }
