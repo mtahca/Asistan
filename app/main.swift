@@ -1400,12 +1400,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             cfg.hides = true
             logLine("FaceTime kapalı; arka planda açılıyor")
             NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: "/System/Applications/FaceTime.app"), configuration: cfg) { [weak self] _, _ in
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { self?.faceTimeSetMic(keys, retry: retry + 1) }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { self?.faceTimeSetMic(keys, retry: retry + 1, openIfClosed: openIfClosed) }
             }
             return
         }
         let a = facetimePickDevice(input: true, keys: keys)
-        logLine("FaceTime mikrofon seçimi \(keys.first ?? ""): \(a)")
+        logLine("FaceTime mikrofon seçimi \(keys.first ?? ""): \(a)" + (retry > 0 ? " (deneme \(retry + 1))" : ""))
+        // FaceTime yeni açıldıysa menüsü birkaç saniye hazır olmayabilir: başarana kadar (en çok ~10 sn) yeniden dene
+        if !a, retry < 6 {
+            let wantsAssistant = !(keys.first?.lowercased().contains("system") ?? false) && !(keys.first?.lowercased().contains("sistem") ?? false)
+            if wantsAssistant && !(busy || inSession) { return }   // arama bu arada bittiyse Asistan Mikrofonu'nu seçme
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+                self?.faceTimeSetMic(keys, retry: retry + 1, openIfClosed: openIfClosed)
+            }
+        }
     }
 
     /// Fiziksel mikrofon adı (Devral ve köprü için): ses ayarlarındaki seçim, yoksa yerleşik mikrofon
