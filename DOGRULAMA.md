@@ -1,5 +1,13 @@
 # Doğrulama
 
+## 0.8.2
+
+0.8.1 gerçek Telefon aramalarında doğrulandı: günlükte "Telefon: mikrofon Asistan Mikrofonu ✓" ve "Asistan Mikrofonu’nu kullanan: com.apple.avconferenced" satırları görüldü.
+
+Tanı kaydındaki gerçek WhatsApp menüsü, başlıklarda görünmez U+200E işareti olduğunu gösterdi. Menü karşılaştırması bu işaretleri yok sayıyor; `MenuRouteTests` gerçek menü yapısıyla genişletildi.
+
+Aynı günlükte GPT-Live oturumları görüşme ortasında "veri gönderilemedi" hatasıyla bitti. Ses her 30 ms'de gönderildiği için gönderim, sunucunun kuyruktaki hata olayından önce başarısız oluyordu ve asıl neden kayboluyordu. Artık önce sunucunun gerekçesi gösteriliyor; teknik ayrıntı `app.log`a "GPT-Live tanı:" satırı olarak yazılıyor. Bu değişiklik kopmayı engellemez; nedenini görünür kılar. Python testleri: 96.
+
 ## 0.8.1
 
 Yeni Swift parçaları: menüden mikrofon/hoparlör seçimi (`MenuRoute.swift`, `CallAudioRoute.swift`), macOS ses işlemi doğrulaması, sistem mikrofonu yedeği ve Ses ayarlarındaki denetim düğmesi. Menü karar mantığı `tests/MenuRouteTests.swift` ile test edilir. Menüye erişim ve macOS ses API'si yalnızca gerçek Mac'te sınanabilir.

@@ -63,6 +63,11 @@ def session_config(instructions, voice="marin"):
                 delegation=dict(type='client'))
 
 
+def diagnose(text):
+    """Technical detail for app.log only; never shown to the caller or the UI."""
+    print(time.strftime('[%H:%M:%S] ')+'GPT-Live tanı: '+str(text)[:300], file=sys.stderr, flush=True)
+
+
 class LiveConnection:
     def __init__(self, key, timeout=8, factory=None):
         import certifi
@@ -94,7 +99,8 @@ class LiveConnection:
         try:
             self.ws.send(json.dumps(dict(type=kind, event_id=event_id, **fields), ensure_ascii=False))
             return event_id
-        except Exception:
+        except Exception as e:
+            diagnose(f'{kind} gönderilemedi: {type(e).__name__}: {e}')
             raise LiveError('GPT-Live bağlantısına veri gönderilemedi.') from None
 
     def recv(self):
@@ -108,7 +114,8 @@ class LiveConnection:
             return None
         except LiveError:
             raise
-        except Exception:
+        except Exception as e:
+            diagnose(f'okuma hatası: {type(e).__name__}: {e}')
             raise LiveError('GPT-Live bağlantısı kesildi veya yanıt okunamadı.') from None
 
     def close(self):
@@ -119,7 +126,9 @@ class LiveConnection:
 
 
 def event_error(event):
-    code = (event.get('error') or {}).get('code')
+    error = event.get('error') or {}
+    code = error.get('code')
+    diagnose(f"sunucu hatası: code={code} type={error.get('type')} message={error.get('message')}")
     if code in ('insufficient_quota', 'rate_limit_exceeded'):
         return LiveError('GPT-Live kota veya hız sınırı. Hesap kullanımını kontrol edin.')
     return LiveError('GPT-Live komutu kabul edilmedi veya oturum sürdürülemedi. Bağlantıyı yeniden sınayın.')
@@ -273,8 +282,10 @@ class LiveCall:
             while not self.worker_stop.is_set():
                 event=self.connection.recv()
                 if event is not None: self.events.put(event,timeout=1)
-        except Exception:
-            if not self.worker_stop.is_set(): self.errors.put('GPT-Live bağlantısı kesildi. Görüşmeyi devralabilirsiniz.')
+        except Exception as e:
+            if not self.worker_stop.is_set():
+                diagnose(f'alım durdu: {type(e).__name__}: {e}')
+                self.errors.put('GPT-Live bağlantısı kesildi. Görüşmeyi devralabilirsiniz.')
 
     def start_backend(self):
         if self.backend and self.backend.is_alive(): return
@@ -396,6 +407,26 @@ class LiveCall:
             content='The call is connected. Speak FIRST, immediately, in Turkish; do not wait for the caller to speak. '
                     'Say this greeting now: '+self.greeting+' Then stop speaking and listen. Do not repeat the greeting.')
         self.agent.emit('live_status',self.s.id,text='Karşılama istendi; arayanın konuşması beklenmiyor.')
+        try: self.converse(np)
+        except LiveError:
+            reason=self.server_reason()
+            if reason is not None: raise reason from None
+            raise
+
+    def server_reason(self):
+        """Audio is sent every 30 ms, so a send can fail before the reader's queued
+        error event is handled. Report the server's own reason when it sent one."""
+        deadline=time.monotonic()+0.3
+        while time.monotonic()<deadline:
+            try: event=self.events.get(timeout=0.05)
+            except queue.Empty: continue
+            if event.get('type')=='error': return event_error(event)
+            if event.get('type')=='session.closed':
+                diagnose('sunucu oturumu kapattı: '+json.dumps(event.get('reason') or event.get('session') or {}, ensure_ascii=False)[:200])
+                return LiveError('GPT-Live oturumu sunucu tarafından kapatıldı. Aramayı devralabilirsiniz.')
+        return None
+
+    def converse(self,np):
         started=time.monotonic();voiced=0;muted_until=0.0;interrupted=False
         while not self.agent._expired(self.s,started):
             if not self.errors.empty():raise LiveError(self.errors.get())

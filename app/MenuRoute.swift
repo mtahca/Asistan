@@ -32,8 +32,10 @@ enum MenuRoute {
     static let inputHeadings = ["microphone", "mikrofon", "input", "giriş", "ses girişi"]
     static let outputHeadings = ["output", "çıkış", "speaker", "speakers", "hoparlör", "ses çıkışı"]
 
+    /// WhatsApp prefixes its menu titles with invisible direction marks (U+200E); drop them.
     static func normalized(_ text: String) -> String {
-        text.precomposedStringWithCanonicalMapping.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        let visible = text.unicodeScalars.filter { !(0x200E...0x200F).contains($0.value) && !(0x202A...0x202E).contains($0.value) && !(0x2066...0x2069).contains($0.value) }
+        return String(String.UnicodeScalarView(visible)).precomposedStringWithCanonicalMapping.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
     }
     static func matches(_ title: String, _ device: String) -> Bool {
         let device = normalized(device)
@@ -76,7 +78,9 @@ enum MenuRoute {
         plan.inputListed = !inputs.isEmpty
         plan.inputCurrent = inputs.first(where: { $0.checked })?.title
         plan.inputReady = plan.inputCurrent.map { matches($0, microphone) } ?? false
-        if !plan.inputReady, let target = inputs.first(where: { matches($0.title, microphone) }) {
+        // Prefer the device itself over "Use system setting (Asistan Mikrofonu)".
+        let direct = inputs.first(where: { matches($0.title, microphone) && !isSystemSetting($0.title) })
+        if !plan.inputReady, let target = direct ?? inputs.first(where: { matches($0.title, microphone) }) {
             plan.inputPress = MenuChoice(path: target.path, title: target.title)
         }
         let current = outputs.first(where: { $0.checked })
