@@ -1,5 +1,11 @@
 # Doğrulama
 
+## 0.8.8
+
+`detect_mutual_farewell`: asistanın güncel yanıtı ve arayanın son sözü vedalaşma içeriyorsa `ending`/`ending_spoken` ayarlanır; mevcut kapanış koşulu (ses bitti + 3 sn) devreye girer. Arayan konuşmaya devam ederse kapanış geri alınır. Yeni test: `test_mutual_farewell_ends_the_call_without_backend_marker`. Karşılama hatırlatması 1 sn. Python testleri: 103.
+
+Not: 0.8.7'deki not ve ön hazırlık düzeltmeleri kullanıcı tarafından henüz denenmedi (Derleme 26 çalışıyordu).
+
 ## 0.8.7
 
 - **Notlar:** `deliver_notes` notları `session.instructions.append` ile gönderir; `session.instructions.appended` onayı not durumunu "model kabul etti" yapar. Yeni test: `test_note_goes_in_as_instruction_and_ack_updates_status`.
