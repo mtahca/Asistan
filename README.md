@@ -1,8 +1,19 @@
-# Asistan 0.8
+# Asistan 0.8.1
 
 macOS menü çubuğunda çalışan yapay zekâ telefon asistanı. iPhone–Mac arama aktarımıyla gelen Telefon/FaceTime ve WhatsApp masaüstü sesli aramalarını karşılar, arayanla Türkçe konuşur ve görüşme notu çıkarır. Görüşmeyi canlı metinden izleyebilir, asistana not gönderebilir, görüşmeyi devralabilir veya sonlandırabilirsiniz. Aynı işleri **Asistan Mobile** ile iPhone'dan da yapabilirsiniz.
 
 0.8, eski Alpha (kökteki ilk uygulama) ile Beta 0.7.3'ü tek uygulamada birleştirir. Temeli Beta 0.7.3'tür; Alpha kaynakları depodan kaldırıldı.
+
+## 0.8.1: Arama uygulamalarının ses seçimi otomatik
+
+Bir arama uygulaması (özellikle macOS Telefon) mikrofon olarak Asistan Mikrofonu dışında bir aygıt kullanırsa asistanın sesi arayana gitmez. 0.8.1 bunu her görüşmede kendisi çözer:
+
+1. **Menüden seçim:** Arama bağlanınca Asistan, aramanın geldiği uygulamanın (Telefon, FaceTime, WhatsApp) menüsünde mikrofonu **Asistan Mikrofonu** yapar. Hoparlör yanlışlıkla bir Asistan sanal aygıtındaysa gerçek hoparlöre alır. Uygulama arka plandaysa menüsünü okumak için kısa süre öne getirilir. Seçim, uygulama hazır olana kadar 6 kez yeniden denenir.
+2. **Doğrulama:** macOS'un ses sisteminden Asistan Mikrofonu'nu gerçekten hangi işlemin kullandığına bakılır.
+3. **Yedek:** Üçüncü denemede hâlâ doğrulanmadıysa sistem mikrofonu görüşme süresince **Asistan Mikrofonu** yapılır ("Sistem ayarını kullan" seçili uygulamalar için). Görüşme bitince, uygulama kapanınca veya bir sonraki açılışta eski mikrofon geri gelir. **Ses ayarları…** penceresinden kapatılabilir.
+4. **Uyarı:** Hiçbiri sonuç vermezse canlı metne, bildirimlere ve iPhone'a açık bir uyarı düşer; Devral ile görüşmeyi alabilirsiniz.
+
+**Ses ayarları… → Uygulamaları denetle ve düzelt** düğmesi, arama yokken açık olan Telefon, FaceTime ve WhatsApp'ı denetleyip düzeltir ve her birinin mikrofon/hoparlör durumunu gösterir. **Diğer seçenekler → Tanı bilgilerini kaydet** artık bu uygulamaların menü yapısını ve Asistan Mikrofonu'nu kullanan işlemleri de kaydeder.
 
 ## 0.8'de neler değişti
 
@@ -46,7 +57,7 @@ Başka bir Mac'e kurulum: [DIGER_MAC_KURULUM.md](DIGER_MAC_KURULUM.md).
 
 ## Sabit Loopback ses hattı
 
-BlackHole gerekmez. Asistan arama başında, sonunda veya Devral sırasında sistemin ses aygıtlarını değiştirmez.
+BlackHole gerekmez. Asistan sistemin ses aygıtlarını değiştirmez; tek istisna, arama uygulamasının mikrofonu doğrulanamadığında devreye giren ve görüşme bitince geri alınan sistem mikrofonu yedeğidir (Ses ayarlarından kapatılabilir).
 
 | Aygıt | Kaynak | Pass-Thru |
 |---|---|---|
@@ -97,6 +108,7 @@ Testler kurulu Python ortamını kullanır (`~/Documents/Asistan Data/.venv`). B
 
 ## Sürüm geçmişi
 
+- **0.8.1** — Arama uygulamalarının mikrofon/hoparlör seçimi her görüşmede otomatik yapılıyor ve doğrulanıyor; sistem mikrofonu yedeği, Ses ayarlarında denetle-düzelt düğmesi ve menüleri içeren tanı kaydı.
 - **0.8.0** — Alpha ve Beta tek uygulamada birleşti. Veri ve tercih taşıma, Mobile portu 47821, Mac adresinin gösterilmesi, canlı pencere iyileştirmeleri, durum simgesi ve Son görüşmeler menüsü eklendi.
 - **0.7.3** — GPT-Live karşılamasında tek seslendirme hatırlatmasından önceki bekleme 4 saniyeden 2 saniyeye indi.
 - **0.7.2** — WhatsApp sesli arama başlıkları için algılama düzeltmesi; GPT-Live karşılaması arayanı beklemeden başlıyor.

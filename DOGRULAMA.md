@@ -1,5 +1,17 @@
 # Doğrulama
 
+## 0.8.1
+
+Yeni Swift parçaları: menüden mikrofon/hoparlör seçimi (`MenuRoute.swift`, `CallAudioRoute.swift`), macOS ses işlemi doğrulaması, sistem mikrofonu yedeği ve Ses ayarlarındaki denetim düğmesi. Menü karar mantığı `tests/MenuRouteTests.swift` ile test edilir. Menüye erişim ve macOS ses API'si yalnızca gerçek Mac'te sınanabilir.
+
+Elle kontrol:
+
+- Telefon uygulamasında mikrofonu bilerek fiziksel mikrofona alın, iPhone'a gelen bir aramayı Asistan ile cevaplayın. `app.log` içinde "Ses hattı denetimi" satırları görünmeli; mikrofon Asistan Mikrofonu'na geçmeli ve arayan asistanı duymalı.
+- Aynısını FaceTime ve WhatsApp için tekrarlayın.
+- Ses ayarları → Uygulamaları denetle ve düzelt: açık uygulamaların mikrofon/hoparlör durumu listelenmeli.
+- Yedek açıkken, menü okunamadığında sistem mikrofonu görüşme boyunca Asistan Mikrofonu olmalı, görüşme bitince eski haline dönmeli.
+- Sorun sürerse Diğer seçenekler → Tanı bilgilerini kaydet ile `tani.txt` dosyasını oluşturun; dosyanın sonunda uygulamaların menüleri yer alır.
+
 ## 0.8.0
 
 0.8, Beta 0.7.3'ün kodunu temel alır. Ses ajanı, GPT-Live ve arama mantığında davranış değişikliği yoktur; yalnızca kullanıcıya görünen adlar "Beta" yerine "Asistan" oldu. Python testlerinin tamamı (95) 0.8 kaynaklarıyla geçti.

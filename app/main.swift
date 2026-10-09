@@ -491,6 +491,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var statusSymbol = ""
     var liveFollow = true
     var recentMenu: NSMenu!
+    let routeQueue = DispatchQueue(label: "com.mtahca.asistan.call-route")
+    var routeFallback = (UserDefaults.standard.object(forKey: "routeFallbackDefaultInput") as? Bool) ?? true
     @objc func showPersonalization() {
         if personalization == nil { personalization = PersonalizationController(app: self) }
         personalization?.show()
@@ -522,6 +524,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
 
         installDefaultListeners()
+        if CallAudioRoute.restoreDefaultInput() { logLine("Önceki görüşmeden kalan sistem mikrofonu geri alındı") }
 
         let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
         if !AXIsProcessTrustedWithOptions(opts) {
@@ -582,6 +585,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func applicationWillTerminate(_ n: Notification) {
+        CallAudioRoute.restoreDefaultInput()  // not on routeQueue: it may be waiting for the main thread
         mobile.shutdown()
         setupController?.stopAPICheck()
         sendCommand(["command": "shutdown"])
@@ -843,6 +847,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         inSession = false
         busy = false
         sessionID = nil; sessionSource = nil; humanCallActive = false
+        releaseCallRoute()
         connectionDeadline = nil
         stoppingDeadline = nil
         sessionWatchdog = nil
@@ -1102,6 +1107,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let u = self.projectDir.appendingPathComponent("tani.txt")
             logLine("Tanı: ses kullanan süreçler: \(audioProcessReport())")
             dumpTree(bundleIDs: ["com.apple.notificationcenterui"] + CallSource.apple.bundleIDs + CallSource.whatsapp.bundleIDs, to: u)
+            var menus = "\n== Arama uygulamalarının menüleri\n"
+            for target in CallAudioRoute.apps {
+                let outline = CallAudioRoute.describeMenus(bundleID: target.bundleID)
+                if !outline.isEmpty { menus += "\n-- \(target.name) (\(target.bundleID))\n" + outline }
+            }
+            menus += "\nAsistan Mikrofonu’nu kullanan: " + (CallAudioRoute.microphoneUsers().map { $0.isEmpty ? "kimse" : $0.joined(separator: ", ") } ?? "macOS bildirmedi") + "\n"
+            if let handle = try? FileHandle(forWritingTo: u) { handle.seekToEndOfFile(); handle.write(Data(menus.utf8)); try? handle.close() }
             logLine("Tanı yazıldı: \(u.path)")
         }
     }
@@ -1298,6 +1310,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 self.agent = nil; self.agentInput = nil; self.agentReady = false; self.localModelsReady = false
                 self.inSession = false; self.busy = false; self.sessionID = nil; self.sessionSource = nil; self.humanCallActive = false
                 self.connectionDeadline = nil; self.stoppingDeadline = nil; self.sessionWatchdog = nil
+                self.releaseCallRoute()
                 self.updateStatus()
                 self.notify("Asistan ses ajanı durdu", "Kurulum veya izinleri kontrol edip yeniden başlatabilirsiniz.")
             }
@@ -1340,6 +1353,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case "bridge_ended":
             humanCallActive = false; busy = false; inSession = false; agentReady = true
             sessionID = nil; sessionSource = nil; stoppingDeadline = nil; sessionWatchdog = nil
+            releaseCallRoute()
             appendLiveNote("— Devralınan görüşmenin ses hattı kapandı —")
         case "session_started":
             logLine("Asistan görüşmesi başladı; kaynak=\(sessionSource?.rawValue ?? "Bilinmiyor"), ses=\(event["voice_mode"] as? String ?? "local")")
@@ -1391,7 +1405,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 appendLiveNote(humanCallActive ? "— Görüşmeyi devraldınız; mikrofonunuz aynı hatta aktarılıyor —" : "— Devralma mikrofonu açılamadı; arama uygulamasından devralabilirsiniz —")
                 if !humanCallActive { notify("Devralma sesi başlamadı", "Arama uygulamasından mikrofonunuzu seçebilirsiniz.") }
             } else { appendLiveNote(saved ? "— Asistan oturumu bitti; döküm kaydedildi —" : "— Asistan durdu; döküm kaydedilemedi —") }
-            if !humanCallActive { sessionID = nil; sessionSource = nil }
+            if !humanCallActive { sessionID = nil; sessionSource = nil; releaseCallRoute() }
         default: break
         }
         updateStatus()
@@ -1417,6 +1431,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             abortPendingCall("Ses ajanına ulaşılamadı."); return
         }
         sessionWatchdog = Date().addingTimeInterval(310)
+        secureCallRoute(sid: sid, source: source)
         // Starting the session must itself have an acknowledgement.
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
             guard let self = self, self.sessionID == sid, self.busy, !self.inSession else { return }
@@ -1424,7 +1439,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self.notify("Asistan oturumu başlamadı", "Aramayı arama uygulamasından devralabilirsiniz.")
         }
     }
+    /// After the call connects: make the call app use Asistan Mikrofonu and confirm that it records from it.
+    /// The menu choice is retried because a call app launched by the call needs a few seconds to build its menus.
+    func secureCallRoute(sid: String, source: CallSource) {
+        let apps = CallAudioRoute.apps.filter { source.bundleIDs.contains($0.bundleID) }
+        let fallback = routeFallback
+        let preferred = getDefault(kAudioHardwarePropertyDefaultOutputDevice).map(deviceName)
+        routeQueue.async { [weak self] in
+            func current() -> Bool { DispatchQueue.main.sync { self?.sessionID == sid && self?.busy == true } }
+            var switched = false
+            for attempt in 1...6 {
+                guard current() else { return }
+                let reports = apps.map { CallAudioRoute.check(bundleID: $0.bundleID, name: $0.name, apply: true, preferredOutput: preferred) }
+                usleep(1_000_000)
+                let users = CallAudioRoute.microphoneUsers()
+                let summary = reports.map { $0.summary }.joined(separator: "; ")
+                let usage = users.map { $0.isEmpty ? "kimse" : $0.joined(separator: ", ") } ?? "macOS bildirmedi"
+                DispatchQueue.main.async { logLine("Ses hattı denetimi \(attempt): \(summary) | Asistan Mikrofonu’nu kullanan: \(usage)") }
+                if let users = users, !users.isEmpty {
+                    DispatchQueue.main.async { logLine("Ses hattı doğrulandı" + (switched ? " (sistem mikrofonu geçici olarak Asistan Mikrofonu)" : "")) }
+                    return
+                }
+                // A fresh read showing Asistan Mikrofonu checked is enough when macOS cannot name the recorder.
+                if reports.contains(where: { $0.plan?.inputReady == true }) {
+                    DispatchQueue.main.async { logLine("Ses hattı menüde doğru; macOS kullanımı ayrıca doğrulayamadı") }
+                    return
+                }
+                if attempt == 3, fallback, !switched, current() {
+                    switched = CallAudioRoute.useMicrophoneAsDefaultInput()
+                    DispatchQueue.main.async { logLine("Sistem mikrofonu görüşme süresince Asistan Mikrofonu yapıldı: \(switched)") }
+                }
+            }
+            guard current() else { return }
+            DispatchQueue.main.async {
+                guard let self = self, self.sessionID == sid else { return }
+                let text = "⚠️ Arayan asistanı duymuyor olabilir: arama uygulaması Asistan Mikrofonu’nu kullanmıyor. Uygulamanın Ses/Video/Arama menüsünden mikrofonu Asistan Mikrofonu seçin ya da Devral’a basın."
+                self.appendLiveNote(text)
+                self.notify("Asistanın sesi arayana gitmiyor olabilir", "Arama uygulamasında mikrofonu Asistan Mikrofonu seçin veya görüşmeyi devralın.")
+                if self.showLive { self.liveWindow.orderFrontRegardless() }
+            }
+        }
+    }
+    func releaseCallRoute() { routeQueue.async { if CallAudioRoute.restoreDefaultInput() { DispatchQueue.main.async { logLine("Sistem mikrofonu eski haline getirildi") } } } }
+
     func abortPendingCall(_ message: String) {
+        releaseCallRoute()
         busy = false; inSession = false; sessionID = nil; sessionSource = nil; connectionDeadline = nil; sessionWatchdog = nil
         reportCallFailure(message)
     }
@@ -1457,25 +1516,61 @@ final class SoundPrefsController: NSObject {
     var info: NSTextField!
     var microphones: NSPopUpButton!
     var feedback: NSTextField!
+    var routeInfo: NSTextField!
+    var routeButton: NSButton!
+    var fallbackToggle: NSButton!
     init(app: AppDelegate) { self.app = app; super.init() }
     func build() {
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 540, height: 360), styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 540, height: 540), styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.title = "Asistan — Kalıcı ses hattı"; window.isReleasedWhenClosed = false
         let content = window.contentView!
         let title = NSTextField(labelWithString: "Ses hattı: Loopback")
-        title.font = .boldSystemFont(ofSize: 16); title.frame = NSRect(x: 20, y: 316, width: 500, height: 24); content.addSubview(title)
+        title.font = .boldSystemFont(ofSize: 16); title.frame = NSRect(x: 20, y: 496, width: 500, height: 24); content.addSubview(title)
         info = NSTextField(wrappingLabelWithString: "")
-        info.isSelectable = true; info.frame = NSRect(x: 20, y: 170, width: 500, height: 142); content.addSubview(info)
+        info.isSelectable = true; info.frame = NSRect(x: 20, y: 350, width: 500, height: 142); content.addSubview(info)
         let micLabel = NSTextField(labelWithString: "Devralırken kullanacağım mikrofon")
-        micLabel.frame = NSRect(x: 20, y: 140, width: 500, height: 22); content.addSubview(micLabel)
-        microphones = NSPopUpButton(frame: NSRect(x: 20, y: 105, width: 500, height: 30), pullsDown: false)
+        micLabel.frame = NSRect(x: 20, y: 320, width: 500, height: 22); content.addSubview(micLabel)
+        microphones = NSPopUpButton(frame: NSRect(x: 20, y: 285, width: 500, height: 30), pullsDown: false)
         microphones.target = self; microphones.action = #selector(selectMicrophone); content.addSubview(microphones)
         feedback = NSTextField(wrappingLabelWithString: "")
-        feedback.frame = NSRect(x: 20, y: 56, width: 500, height: 44); content.addSubview(feedback)
+        feedback.frame = NSRect(x: 20, y: 236, width: 500, height: 44); content.addSubview(feedback)
         let refresh = NSButton(title: "Durumu yenile", target: self, action: #selector(refresh))
-        refresh.bezelStyle = .rounded; refresh.frame = NSRect(x: 20, y: 18, width: 140, height: 30); content.addSubview(refresh)
+        refresh.bezelStyle = .rounded; refresh.frame = NSRect(x: 20, y: 198, width: 140, height: 30); content.addSubview(refresh)
         let open = NSButton(title: "Loopback’i aç", target: self, action: #selector(openLoopback))
-        open.bezelStyle = .rounded; open.frame = NSRect(x: 176, y: 18, width: 160, height: 30); content.addSubview(open)
+        open.bezelStyle = .rounded; open.frame = NSRect(x: 176, y: 198, width: 160, height: 30); content.addSubview(open)
+        let routeTitle = NSTextField(labelWithString: "Arama uygulamalarının mikrofonu ve hoparlörü")
+        routeTitle.font = .boldSystemFont(ofSize: 13); routeTitle.frame = NSRect(x: 20, y: 162, width: 500, height: 20); content.addSubview(routeTitle)
+        routeInfo = NSTextField(wrappingLabelWithString: "Her görüşmede Asistan, Telefon/FaceTime/WhatsApp menüsünden mikrofonu Asistan Mikrofonu yapar ve macOS’tan doğrular. Görüşmeden önce denetlemek için aşağıdaki düğmeyi kullanın.")
+        routeInfo.isSelectable = true; routeInfo.frame = NSRect(x: 20, y: 82, width: 500, height: 76); content.addSubview(routeInfo)
+        fallbackToggle = NSButton(checkboxWithTitle: "Doğrulanamazsa görüşme süresince sistem mikrofonunu Asistan Mikrofonu yap", target: self, action: #selector(toggleFallback))
+        fallbackToggle.frame = NSRect(x: 20, y: 52, width: 500, height: 22); content.addSubview(fallbackToggle)
+        routeButton = NSButton(title: "Uygulamaları denetle ve düzelt", target: self, action: #selector(checkCallApps))
+        routeButton.bezelStyle = .rounded; routeButton.frame = NSRect(x: 20, y: 14, width: 260, height: 30); content.addSubview(routeButton)
+    }
+    @objc func toggleFallback() {
+        app.routeFallback = fallbackToggle.state == .on
+        UserDefaults.standard.set(app.routeFallback, forKey: "routeFallbackDefaultInput")
+    }
+    @objc func checkCallApps() {
+        guard !app.busy else { routeInfo.stringValue = "Görüşme sürüyor; bu görüşmenin ses hattı zaten otomatik denetleniyor."; return }
+        routeButton.isEnabled = false; routeInfo.stringValue = "Denetleniyor… Uygulamalar kısa süre öne gelebilir."
+        let preferred = getDefault(kAudioHardwarePropertyDefaultOutputDevice).map(deviceName)
+        app.routeQueue.async { [weak self] in
+            var reports: [RouteReport] = []
+            for target in CallAudioRoute.apps {
+                let report = CallAudioRoute.check(bundleID: target.bundleID, name: target.name, apply: true, preferredOutput: preferred)
+                // WhatsApp has two identifiers; show the running one only.
+                if let index = reports.firstIndex(where: { $0.app == report.app }) {
+                    if !reports[index].running { reports[index] = report }
+                } else { reports.append(report) }
+            }
+            let lines = reports.map { $0.summary }.joined(separator: "\n")
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                self.routeButton.isEnabled = true
+                self.routeInfo.stringValue = lines + "\nÇalışmayan uygulamayı açıp yeniden deneyin. Liste bulunamazsa o uygulamanın menüsünden mikrofonu elle Asistan Mikrofonu seçin."
+            }
+        }
     }
     @objc func refresh() {
         let listen = namedAudioDevice(BetaAudio.listenName, input: true) != nil
@@ -1495,6 +1590,7 @@ final class SoundPrefsController: NSObject {
             microphones.addItem(withTitle: "Seçili mikrofon bağlı değil")
             microphones.lastItem?.representedObject = selected; microphones.select(microphones.lastItem)
         }
+        fallbackToggle.state = app.routeFallback ? .on : .off
         feedback.stringValue = "Seçim bir sonraki aramada kullanılır. Sistem ses ayarları değiştirilmez. Bağlı olmayan mikrofonla Devral sesi açılamaz."
     }
     @objc func selectMicrophone() {
