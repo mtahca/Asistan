@@ -49,7 +49,7 @@ struct BetaModelConfiguration {
         if try voiceMode(in: values) == "gpt-live" { _ = try liveVoice(in: values); providers.insert("openai") }
         return providers.sorted()
     }
-    static let editableKeys: Set<String> = ["VOICE_MODE", "GPT_LIVE_VOICE", "OWNER_NAME", "LLM_PROVIDER", "CLAUDE_MODEL", "OPENAI_MODEL", "SUMMARY_PROVIDER", "SUMMARY_MODEL", "WHISPER_MODEL", "STT_BACKEND", "TTS_SPEED"]
+    static let editableKeys: Set<String> = ["VOICE_MODE", "GPT_LIVE_VOICE", "OWNER_NAME", "LLM_PROVIDER", "CLAUDE_MODEL", "OPENAI_MODEL", "SUMMARY_PROVIDER", "SUMMARY_MODEL", "WHISPER_MODEL", "STT_BACKEND", "TTS_SPEED", "LIVE_NOISE_GATE"]
     static let credentialKeys = ["anthropic": "ANTHROPIC_API_KEY", "openai": "OPENAI_API_KEY"]
     static func invalid(_ text: String) -> NSError {
         NSError(domain: "Asistan", code: 1, userInfo: [NSLocalizedDescriptionKey: text])

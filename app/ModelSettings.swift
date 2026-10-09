@@ -14,6 +14,8 @@ final class ModelSettingsController: NSObject {
     var transcription: NSPopUpButton!
     var speed: NSSlider!
     var speedLabel: NSTextField!
+    var speedTitle: NSTextField!
+    var noiseGate: NSButton!
     var feedback: NSTextField!
     var keyStatus: NSTextField!
     var anthropicKey: NSSecureTextField!
@@ -57,7 +59,11 @@ final class ModelSettingsController: NSObject {
         liveVoice = popup(y: 392, items: BetaModelConfiguration.liveVoices.map { ($0 == "marin" ? "Marin — varsayılan" : $0.capitalized, $0) })
         liveVoice.isHidden = true; liveVoice.target = self; liveVoice.action = #selector(updateMode)
         speechInfo = label("Yerel mod: Whisper ve EMA Lightning bu Mac’te çalışır.", y: 348, height: 34)
-        fieldLabel("Konuşma hızı", y: 311)
+        speedTitle = fieldLabel("Konuşma hızı", y: 311)
+        noiseGate = NSButton(checkboxWithTitle: "Arka plan gürültüsünü bastır (önerilir)", target: nil, action: nil)
+        noiseGate.frame = NSRect(x: 220, y: 311, width: 356, height: 24); noiseGate.isHidden = true
+        noiseGate.toolTip = "Arayan konuşmazken trafik gibi gürültü OpenAI'ye gönderilmez; model uydurma cümleler üretmez."
+        window.contentView!.addSubview(noiseGate)
         speed = NSSlider(value: 1, minValue: 0.85, maxValue: 1.2, target: self, action: #selector(updateSpeed))
         speed.frame = NSRect(x: 220, y: 311, width: 274, height: 24); window.contentView!.addSubview(speed)
         speedLabel = NSTextField(labelWithString: "1,00×"); speedLabel.frame = NSRect(x: 508, y: 311, width: 68, height: 20); window.contentView!.addSubview(speedLabel)
@@ -79,7 +85,8 @@ final class ModelSettingsController: NSObject {
         transcription.isEnabled = !online; transcription.isHidden = online
         liveVoice.isEnabled = online; liveVoice.isHidden = !online
         speechChoiceLabel.stringValue = online ? "GPT-Live sesi" : "Konuşmayı yazıya çevirme"
-        speed.isEnabled = !online
+        speed.isEnabled = !online; speed.isHidden = online; speedLabel.isHidden = online
+        noiseGate.isHidden = !online; speedTitle.stringValue = online ? "Gürültü" : "Konuşma hızı"
         speechInfo.stringValue = online ? "GPT-Live 1 dinler ve konuşur; Whisper/EMA kullanılmaz. Ses seçimi yeni görüşmede uygulanır. Görüşme modeli, gerektiğinde arka planda yanıt verir." : "Yerel mod: Whisper ve EMA Lightning bu Mac’te çalışır. Model değişikliği indirme gerektirebilir."
         privacyInfo.stringValue = online ? "GPT-Live modunda görüşme sesi OpenAI’ye gider. Ses oturumu $0,05/dk; arka plan ve özet ayrıca ücretlenir. Anahtarı buraya girin. Değişiklik görüşme yokken uygulanır." : "Anahtarları buraya girin. Metin ve talimatlar seçilen sağlayıcıya gider; ham ses bu Mac’te işlenir. Boş anahtar alanı mevcut anahtarı korur."
     }
@@ -103,6 +110,7 @@ final class ModelSettingsController: NSObject {
         } catch { feedback.stringValue = error.localizedDescription }
         choose(transcription, id: values["WHISPER_MODEL"] ?? "mlx-community/whisper-large-v3-turbo")
         speed.doubleValue = min(1.2, max(0.85, Double(values["TTS_SPEED"] ?? "1") ?? 1)); updateSpeed()
+        noiseGate.state = (values["LIVE_NOISE_GATE"] ?? "on").lowercased() == "off" ? .off : .on
         anthropicKey.stringValue = ""; openAIKey.stringValue = ""; refreshKeys(values)
         window.center(); window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
     }
@@ -119,7 +127,8 @@ final class ModelSettingsController: NSObject {
             var changes = ["VOICE_MODE": mode.selectedItem!.representedObject as! String, "GPT_LIVE_VOICE": liveVoice.selectedItem!.representedObject as! String, "OWNER_NAME": name, "LLM_PROVIDER": selected.provider,
                            "SUMMARY_PROVIDER": selectedSummary?.provider ?? "", "SUMMARY_MODEL": selectedSummary?.model ?? "",
                            "WHISPER_MODEL": transcription.selectedItem!.representedObject as! String,
-                           "STT_BACKEND": "mlx", "TTS_SPEED": String(format: "%.2f", locale: Locale(identifier: "en_US_POSIX"), speed.doubleValue)]
+                           "STT_BACKEND": "mlx", "TTS_SPEED": String(format: "%.2f", locale: Locale(identifier: "en_US_POSIX"), speed.doubleValue),
+                           "LIVE_NOISE_GATE": noiseGate.state == .on ? "on" : "off"]
             changes[selected.provider == "openai" ? "OPENAI_MODEL" : "CLAUDE_MODEL"] = selected.model
             var updated = try BetaModelConfiguration.updating(previous, with: changes)
             let credentials = ["ANTHROPIC_API_KEY": anthropicKey.stringValue.trimmingCharacters(in: .whitespacesAndNewlines),
