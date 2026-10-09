@@ -35,7 +35,7 @@ bash make_cert.sh   # bir kez; sabit imza sayesinde izinler yeniden derlemede ko
 bash build.sh
 ```
 
-Oluşan **Asistan.app** dosyasını **Uygulamalar** klasörüne taşıyıp açın. `AsistanLocal` imzalama kimliği varsa derleme onu kullanır; yoksa geçici (ad hoc) imza kullanılır. Uygulama Apple tarafından notarize edilmez. Hazır uygulama, ZIP paketi, Python ortamı ve model dosyaları bu depoda bulunmaz.
+Oluşan **Asistan.app** dosyasını **Uygulamalar** klasörüne taşıyıp açın. Başka bir Mac'e taşımak için `bash paketle.sh` bir kurulum ZIP'i üretir; adımlar [DIGER_MAC_KURULUM.md](DIGER_MAC_KURULUM.md) içindedir. `AsistanLocal` imzalama kimliği varsa derleme onu kullanır; yoksa geçici (ad hoc) imza kullanılır. Uygulama Apple tarafından notarize edilmez. Hazır uygulama, ZIP paketi, Python ortamı ve model dosyaları bu depoda bulunmaz.
 
 ### Beta'dan 0.8'e geçiş
 

@@ -345,7 +345,8 @@ class LiveCallIntegrationTests(unittest.TestCase):
                 sent_audio=sum(1 for k,_ in self.sent if k=='session.input_audio.append')
                 if len(connections)==1 and sent_audio==2:raise live.LiveError('GPT-Live bağlantısına veri gönderilemedi.')
                 if len(connections)==2 and sent_audio==2:call.s.reason='takeover';call.s.stop.set()
-                if kind=='session.instructions.append':self.events.put(delta('input','Merhaba',0,100,'a'))
+                # Straight into the call's queue: the reader thread's timing must not decide the test.
+                if kind=='session.instructions.append':call.events.put(delta('input','Merhaba',0,100,'a'))
         def factory(key):
             # The capture callback keeps running during a reconnect; emulate fresh frames.
             for _ in range(4):call.audio.put(np.zeros(720,dtype=np.float32))
