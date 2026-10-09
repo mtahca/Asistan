@@ -6,6 +6,8 @@ Swift tarafı menüyü, izinleri ve kurulumu, arama algılamayı, arayan kimliğ
 
 Sabit üç Loopback aygıtı, sistemin ses aygıtlarını değiştirme ihtiyacını ortadan kaldırır. Arama uygulamaları Asistan Mikrofonu'nu kullanır. Asistan, Asistan Dinleme'den dinler ve Asistan Ses Çıkışı'na konuşur. Devral fiziksel mikrofonu aynı hatta aktarır.
 
+Arama uygulamalarının kendi mikrofon seçimi Asistan'ın sesinin arayana ulaşıp ulaşmadığını belirler. Arama bağlandığında Asistan, aramanın geldiği uygulamanın menüsünden Asistan Mikrofonu'nu seçer. Mikrofon listesi yalnızca "Mikrofon/Microphone" başlığı ya da alt menüsüyle tanınır, çünkü Loopback aygıtları hoparlör listesinde de görünebilir. Ardından macOS'un ses işlemi bilgisiyle, gerekirse eko giderme için oluşturulan birleşik aygıtın alt aygıtlarına bakarak, Asistan Mikrofonu'nun gerçekten kullanıldığını doğrular. Doğrulanamazsa sistem mikrofonu görüşme boyunca Asistan Mikrofonu yapılır. Önceki aygıt, çökme durumunda da geri alınabilmesi için önceden kaydedilir.
+
 Yerel ve GPT-Live ses akışları ayrı seçeneklerdir. Arka plan/özet sağlayıcısı ve modeli ayrıca seçilebilir. Ayar değişiklikleri etkin görüşme sırasında uygulanmaz. API anahtarları yayınlanan kaynaklarda bulunmaz.
 
 Asistan Mobile uyumluluğu mevcut v1 TLS-PSK protokolüyle korunur. Port 47821'dir; Mobile'ın elle adres alanı da bu porta bağlanır. Bağlantı sayısı, çerçeve boyutu, gönderim kuyruğu ve komut sıklığı sınırlandırılmıştır. Yeniden bağlanan telefon canlı metni sınırlı bir bellekten alır; telefona ham ses gitmez. Eşleştirme kodunu bilen yerel ağdaki cihazlar cevaplama, not ve sonlandırma komutlarını kullanabilir.

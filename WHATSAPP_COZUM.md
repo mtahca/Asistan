@@ -8,7 +8,7 @@ Loopback'te iki kanallı üç aygıt oluşturun. Hepsinin ana anahtarı açık o
 
 WhatsApp **Call → Microphone → Asistan Mikrofonu**, **Call → Speaker** alanından fiziksel hoparlör veya kulaklık seçin. Mikrofon görünmezse aktif görüşme yokken WhatsApp'ı tamamen kapatıp açın. Asistan Dinleme ve Asistan Ses Çıkışı'nı WhatsApp mikrofonu seçmeyin. Sistem varsayılanlarını fiziksel aygıtlarda bırakın.
 
-Phone/Telefon **Audio**, FaceTime **Video** menüsünde de mikrofonu **Asistan Mikrofonu** seçin. Sistem ayarını kullan seçimi Asistan'ın sesini karşı tarafa göndermeyebilir veya yanlış girişle eko oluşturabilir.
+Phone/Telefon **Audio**, FaceTime **Video** menüsünde de mikrofonu **Asistan Mikrofonu** seçin. Asistan 0.8.1 bu seçimi her görüşmede kendisi de yapar ve doğrular; **Ses ayarları… → Uygulamaları denetle ve düzelt** ile görüşmeden önce kontrol edebilirsiniz. Sistem ayarını kullan seçimi Asistan'ın sesini karşı tarafa göndermeyebilir veya yanlış girişle eko oluşturabilir.
 
 Asistan bu sabit hatta çalışır; BlackHole gerekmez. **Devral** yapay sesi durdurup fiziksel mikrofonu aynı hatta aktarır. Asistan kapalıyken normal konuşma için arama uygulamasında fiziksel mikrofon seçin.
 
