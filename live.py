@@ -94,14 +94,23 @@ class LiveConnection:
             else: message = 'GPT-Live bağlantısı kurulamadı. İnternet ve hesap erişimini kontrol edin.'
             raise LiveError(message) from None
 
-    def send(self, kind, *, event_id=None, **fields):
+    def send(self, kind, *, event_id=None, drop_on_timeout=False, **fields):
+        """The socket timeout (0.5 s) also bounds send. A short network stall must not end
+        the call: control messages are retried for ~1.5 s, audio frames are simply dropped."""
         event_id = event_id or 'beta_' + uuid.uuid4().hex
-        try:
-            self.ws.send(json.dumps(dict(type=kind, event_id=event_id, **fields), ensure_ascii=False))
-            return event_id
-        except Exception as e:
-            diagnose(f'{kind} gönderilemedi: {type(e).__name__}: {e}')
-            raise LiveError('GPT-Live bağlantısına veri gönderilemedi.') from None
+        payload = json.dumps(dict(type=kind, event_id=event_id, **fields), ensure_ascii=False)
+        for attempt in range(3):
+            try:
+                self.ws.send(payload)
+                return event_id
+            except self.timeout_error:
+                if drop_on_timeout: return None
+                if attempt == 2: diagnose(f'{kind} gönderimi 3 denemede zaman aşımına uğradı')
+                else: time.sleep(0.05)
+            except Exception as e:
+                diagnose(f'{kind} gönderilemedi: {type(e).__name__}: {e}')
+                break
+        raise LiveError('GPT-Live bağlantısına veri gönderilemedi.')
 
     def recv(self):
         try:
@@ -376,20 +385,60 @@ class LiveCall:
             self.agent.emit('note_status',self.s.id,note_id=n['id'],text=n['text'],status='modele iletildi; duyulması doğrulanmadı')
             self.agent._checkpoint(self.s)
 
-    def run(self):
-        np=self.agent.np; sd=self.agent.sd
+    RECONNECT_LIMIT=2
+
+    def open_session(self,resume=False):
+        """Start a Live session. On resume the new session gets the conversation so far
+        and is told not to greet again."""
+        instructions=prompt(self.system)+'\nİlk karşılama: '+self.greeting
+        if resume:
+            rows=self.transcript.rows()[-12:]
+            history='\n'.join(r['speaker']+': '+r['text'] for r in rows)[-1500:]
+            instructions+=('\n\nBAĞLANTI YENİLENDİ: Görüşme zaten sürüyor. Karşılamayı ve kendini tanıtmayı TEKRAR ETME. '
+                           'Kaldığın yerden doğal biçimde devam et; gerekiyorsa kısa bir "Pardon, bağlantı kısa süre kesildi, devam edelim." de.\n'
+                           'Şimdiye kadarki konuşma:\n'+(history or '(henüz konuşma yok)'))
         self.connection=self.factory(self.agent.live_key)
-        self.connection.send('session.start',session=session_config(prompt(self.system)+'\nİlk karşılama: '+self.greeting, getattr(self.agent, 'live_voice', 'marin')))
-        deadline=time.monotonic()+8
+        self.connection.send('session.start',session=session_config(instructions, getattr(self.agent, 'live_voice', 'marin')))
+        deadline=time.monotonic()+12
         while not self.s.stop.is_set() and time.monotonic()<deadline:
             event=self.connection.recv()
             if event is None:continue
             if event.get('type')=='error':raise event_error(event)
-            if event.get('type')=='session.started':break
-        else:
-            if self.s.stop.is_set():return
-            raise LiveError('GPT-Live hazırlanırken zaman aşımı.')
-        if self.s.stop.is_set():return
+            if event.get('type')=='session.started':return True
+        if self.s.stop.is_set():return False
+        raise LiveError('GPT-Live hazırlanırken zaman aşımı.')
+
+    def start_reader(self):
+        self.worker_stop=threading.Event()
+        reader=threading.Thread(target=self.receive,daemon=True);self.reader=reader;reader.start()
+
+    def reconnect(self,attempt):
+        """Replace a broken Live connection inside the same phone call. Audio streams stay open."""
+        old_stop=self.worker_stop; old_stop.set()
+        try: self.connection.close()
+        except Exception: pass
+        if hasattr(self,'reader'): self.reader.join(1)
+        self.seconds_base=getattr(self,'seconds_base',0)+self.seconds; self.seconds=0; self.finalized=False
+        for q in (self.events,self.audio,self.errors,self.results):
+            while True:
+                try: q.get_nowait()
+                except queue.Empty: break
+        self.pending.clear(); self.delegations.clear(); self.backend=None
+        self.player.clear()
+        self.greeting_sent_at=None; self.greeting_id=None
+        self.agent.emit('live_notice',self.s.id,text=f'GPT-Live bağlantısı koptu; yeniden bağlanılıyor ({attempt}/{self.RECONNECT_LIMIT})…')
+        try:
+            if not self.open_session(resume=True): return False
+        except LiveError as e:
+            diagnose(f'yeniden bağlanma başarısız: {e}')
+            return False
+        self.start_reader()
+        self.agent.emit('live_notice',self.s.id,text='GPT-Live yeniden bağlandı; görüşme devam ediyor.')
+        return True
+
+    def run(self):
+        np=self.agent.np; sd=self.agent.sd
+        if not self.open_session(): return
         # CoreAudio performs device-rate conversion. No audio or network in callbacks.
         inp=sd.InputStream(device=self.agent.in_idx,channels=2,samplerate=RATE,
             blocksize=720,dtype='float32',callback=self.capture)
@@ -398,7 +447,7 @@ class LiveCall:
             blocksize=720,dtype='float32',callback=self.player.callback)
         self.streams.append(out)
         inp.start();out.start()
-        reader=threading.Thread(target=self.receive,daemon=True);self.reader=reader;reader.start()
+        self.start_reader()
         self.greeting_id='beta_greeting_'+uuid.uuid4().hex
         self.greeting_sent_at=time.monotonic()
         # A self-contained instruction avoids relying on an indirect startup reference.
@@ -407,11 +456,15 @@ class LiveCall:
             content='The call is connected. Speak FIRST, immediately, in Turkish; do not wait for the caller to speak. '
                     'Say this greeting now: '+self.greeting+' Then stop speaking and listen. Do not repeat the greeting.')
         self.agent.emit('live_status',self.s.id,text='Karşılama istendi; arayanın konuşması beklenmiyor.')
-        try: self.converse(np)
-        except LiveError:
-            reason=self.server_reason()
-            if reason is not None: raise reason from None
-            raise
+        attempt=0
+        while True:
+            try: self.converse(np); return
+            except LiveError as e:
+                if self.s.stop.is_set(): return
+                reason=self.server_reason() or e
+                if attempt>=self.RECONNECT_LIMIT: raise reason from None
+                attempt+=1
+                if not self.reconnect(attempt): raise reason from None
 
     def server_reason(self):
         """Audio is sent every 30 ms, so a send can fail before the reader's queued
@@ -433,7 +486,7 @@ class LiveCall:
             try:
                 frame=self.audio.get(timeout=0.02)
                 pcm=(np.clip(frame,-1,1)*32767).astype('<i2').tobytes()
-                self.connection.send('session.input_audio.append',audio=base64.b64encode(pcm).decode('ascii'))
+                self.connection.send('session.input_audio.append',audio=base64.b64encode(pcm).decode('ascii'),drop_on_timeout=True)
                 rms=float(np.sqrt(np.mean(frame*frame)))
                 voiced=voiced+1 if rms>self.agent.live_threshold else 0
                 if voiced>=10:
@@ -457,6 +510,7 @@ class LiveCall:
             while not self.results.empty():
                 did,text,error,revision=self.results.get_nowait()
                 if self.s.stop.is_set():break
+                if did not in self.delegations:continue  # from a connection that was replaced
                 if error:
                     self.connection.send('session.thinking.append',delegation_id=did,content=error)
                 else:
@@ -491,6 +545,6 @@ class LiveCall:
             except Exception:pass
             self.worker_stop.set();self.connection.close()
             if hasattr(self,'reader'):self.reader.join(0.1)
-            self.agent.emit('live_usage',self.s.id,seconds=self.seconds,finalized=self.finalized)
+            self.agent.emit('live_usage',self.s.id,seconds=getattr(self,'seconds_base',0)+self.seconds,finalized=self.finalized)
         # A completed backend job cannot deliver into a closed session or a new call.
         self.captions()

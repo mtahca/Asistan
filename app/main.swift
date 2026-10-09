@@ -491,6 +491,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var statusSymbol = ""
     var liveFollow = true
     var recentMenu: NSMenu!
+    var ringerName = ""
+    var settingsCache: (modified: Date?, values: [String: String])?
     let routeQueue = DispatchQueue(label: "com.mtahca.asistan.call-route")
     var routeFallback = (UserDefaults.standard.object(forKey: "routeFallbackDefaultInput") as? Bool) ?? true
     @objc func showPersonalization() {
@@ -618,8 +620,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return (audio, py, key, perms)
     }
 
+    /// Read every 0.4 s by the status tick; re-parse only when the file changes.
     func savedSettings() -> [String: String] {
-        BetaModelConfiguration.values(in: (try? String(contentsOf: projectDir.appendingPathComponent(".env"), encoding: .utf8)) ?? "")
+        let url = projectDir.appendingPathComponent(".env")
+        let modified = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date
+        if let cache = settingsCache, cache.modified == modified { return cache.values }
+        let values = BetaModelConfiguration.values(in: (try? String(contentsOf: url, encoding: .utf8)) ?? "")
+        settingsCache = (modified, values)
+        return values
     }
     func modelEnvironment() -> [String: String] {
         var env = ProcessInfo.processInfo.environment
@@ -733,7 +741,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             else { text = "Asistan çalışmıyor — yeniden başlatılabilir" }
         }
         else if humanCallActive { text = "Görüşmeyi siz devraldınız" }
-        else if inSession { text = "Asistan görüşmede" }
+        else if inSession { text = "Asistan görüşmede" + (sessionCaller.isEmpty || sessionCaller == "Bilinmiyor" ? "" : " · " + sessionCaller) }
         else if busy { text = "Arama bağlantısı doğrulanıyor…" }
         else if paused { text = "Duraklatıldı — arama karşılanmıyor" }
         else if !accessibility { text = "Erişilebilirlik izni kullanılamıyor" }
@@ -769,7 +777,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statusItem.button?.title = callTitle
         if panel.isVisible {
             answerButton.isEnabled = agentReady && !busy && !paused && accessibility && microphone && loopbackAudioReady()
-            panelTitle.stringValue = !accessibility ? "Erişilebilirlik izni gerekli" : (!microphone ? "Mikrofon izni gerekli" : (!agentReady ? "Asistan hazırlanıyor…" : "Gelen arama"))
+            panelTitle.stringValue = !accessibility ? "Erişilebilirlik izni gerekli" : (!microphone ? "Mikrofon izni gerekli" : (!agentReady ? "Asistan hazırlanıyor…" : "Gelen arama" + (ringerName.isEmpty ? "" : " · " + ringerName)))
         }
         publishMobileState()
     }
@@ -797,6 +805,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let ringing = r.button != nil && !busy && !answered && !dismissed && !paused && agentReady && setupStatus().perms && loopbackAudioReady() && callControl(for: .apple) == nil && callControl(for: .whatsapp) == nil
         let info = ringing ? extractCaller(from: r.texts, source: r.source) : CallerInfo()
         let ringer = !info.name.isEmpty ? info.name : (!info.number.isEmpty ? info.number : "Bilinmeyen arayan")
+        ringerName = ringing && ringer != "Bilinmeyen arayan" ? ringer : ""
         let identity = ringing ? r.source.rawValue + "|" + ringer : ""
         if !ringing { offerToken = nil; offerIdentity = "" }
         else if offerToken == nil || offerIdentity != identity { offerToken = UUID().uuidString; offerIdentity = identity }
@@ -1371,6 +1380,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 appendLiveNote(liveCallerHeading)
             }
         case "live_status": logLine("GPT-Live: " + text)
+        case "live_notice": logLine("GPT-Live: " + text); appendLiveNote(text)
         case "live_transcript":
             if let rows = event["rows"] as? [[String: Any]] {
                 liveRows = rows
