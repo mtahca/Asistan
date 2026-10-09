@@ -1,4 +1,4 @@
-// Wire-compatible with Asistan Mobile v1. Bonjour endpoints carry Beta's own port.
+// Wire-compatible with Asistan Mobile v1. The fixed port also serves Mobile's manual address field.
 import Foundation
 import Network
 import Security
@@ -6,10 +6,10 @@ import CryptoKit
 
 enum LiveProtocol {
     static let serviceType = "_asistan-canli._tcp"
-    static let port: UInt16 = 47822 // Alpha keeps 47821. Mobile uses the discovered endpoint.
+    static let port: UInt16 = 47821
     static let version = 1
     static func serviceName(host: String) -> String {
-        let suffix = " — Asistan Beta"
+        let suffix = " — Asistan"
         var base = host.isEmpty ? "Mac" : host
         while (base + suffix).utf8.count > 63 { base.removeLast() }
         return base + suffix
@@ -32,6 +32,23 @@ enum LiveProtocol {
         let p = NWParameters(tls: tlsOptions(code: code), tcp: tcp)
         p.includePeerToPeer = true
         return p
+    }
+    /// IPv4 addresses for Mobile's manual address field; loopback and link-local are skipped.
+    static func localAddresses() -> [String] {
+        var list: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&list) == 0, let first = list else { return [] }
+        defer { freeifaddrs(list) }
+        var result: [String] = []
+        for pointer in sequence(first: first, next: { $0.pointee.ifa_next }) {
+            let entry = pointer.pointee
+            guard let address = entry.ifa_addr, address.pointee.sa_family == UInt8(AF_INET),
+                  entry.ifa_flags & UInt32(IFF_UP) != 0, entry.ifa_flags & UInt32(IFF_LOOPBACK) == 0 else { continue }
+            var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+            guard getnameinfo(address, socklen_t(address.pointee.sa_len), &host, socklen_t(host.count), nil, 0, NI_NUMERICHOST) == 0 else { continue }
+            let text = String(cString: host)
+            if !text.hasPrefix("169.254."), !result.contains(text) { result.append(text) }
+        }
+        return result
     }
     static func encode(_ obj: [String: Any]) -> Data? {
         guard var d = try? JSONSerialization.data(withJSONObject: obj) else { return nil }

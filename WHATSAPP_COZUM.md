@@ -1,4 +1,4 @@
-# WhatsApp ve Loopback — Beta 0.7.1
+# WhatsApp ve Loopback
 
 Loopback'te iki kanallı üç aygıt oluşturun. Hepsinin ana anahtarı açık olmalıdır:
 
@@ -8,11 +8,11 @@ Loopback'te iki kanallı üç aygıt oluşturun. Hepsinin ana anahtarı açık o
 
 WhatsApp **Call → Microphone → Asistan Mikrofonu**, **Call → Speaker** alanından fiziksel hoparlör veya kulaklık seçin. Mikrofon görünmezse aktif görüşme yokken WhatsApp'ı tamamen kapatıp açın. Asistan Dinleme ve Asistan Ses Çıkışı'nı WhatsApp mikrofonu seçmeyin. Sistem varsayılanlarını fiziksel aygıtlarda bırakın.
 
-Phone/Telefon **Audio**, FaceTime **Video** menüsünde de mikrofonu **Asistan Mikrofonu** seçin. Sistem ayarını kullan seçimi Beta'nın sesini karşı tarafa göndermeyebilir veya yanlış girişle eko oluşturabilir.
+Phone/Telefon **Audio**, FaceTime **Video** menüsünde de mikrofonu **Asistan Mikrofonu** seçin. Sistem ayarını kullan seçimi Asistan'ın sesini karşı tarafa göndermeyebilir veya yanlış girişle eko oluşturabilir.
 
-Beta bu sabit hatta çalışır; BlackHole gerekmez. **Devral** yapay sesi durdurup fiziksel mikrofonu aynı hatta aktarır. Beta kapalıyken normal konuşma için arama uygulamasında fiziksel mikrofon seçin.
+Asistan bu sabit hatta çalışır; BlackHole gerekmez. **Devral** yapay sesi durdurup fiziksel mikrofonu aynı hatta aktarır. Asistan kapalıyken normal konuşma için arama uygulamasında fiziksel mikrofon seçin.
 
-Beta WhatsApp sesli aramasını algılar, bağlantıyı doğrular ve konuşmaya başlar; görüntülü aramalar kapsam dışıdır. Görünen arayan metni kullanılır, SceneWindow gibi teknik kimlikler isim sayılmaz. İsim/numara sunulmuyorsa Bilinmiyor gösterilir.
+Asistan WhatsApp sesli aramasını algılar, bağlantıyı doğrular ve konuşmaya başlar; görüntülü aramalar kapsam dışıdır. Görünen arayan metni kullanılır, SceneWindow gibi teknik kimlikler isim sayılmaz. İsim/numara sunulmuyorsa Bilinmiyor gösterilir.
 
 Devral sonrası Mute when capturing açıkken arayanı duyma ayrıca canlı test gerektirir. Kulaklıkla deneyin; duyamıyorsanız mevcut düzeni yedekleyerek ilgili uygulama kaynağının sessize alma ayarını kontrol edin. Hazır durumu veya aygıtların listelenmesi iki yönlü sesi doğrulamaz.
 

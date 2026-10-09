@@ -1,7 +1,0 @@
-numpy
-sounddevice
-anthropic
-httpx==0.28.1
-ema-lightning
-mlx-whisper
-websocket-client==1.9.2

@@ -1,22 +1,28 @@
-# Gizli / kişisel veriler: asla commit edilmez
+# Credentials and private runtime data
 .env
 .env.*
 !.env.example
-*.log
-*.previous
-notlar/
-sesler_cache/
-debug_ses/
-summary_jobs/
-yedek/
-tani_banner.txt
-go.flag
-asistan_tercihleri.json
-
-# Derleme ve ortam
+*.pem
+*.key
 .venv/
+venv/
+notlar/
+logs/
+summary_jobs/
+asistan_tercihleri.json
+/Asistan Data/
+/Asistan Beta Data/
+*Yedek*/
+*.wav
+*.mp3
+*.pcm
+*.log
+# Generated files
 __pycache__/
-*.pyc
-Asistan.app/
-Asistan.zip
+*.py[cod]
+*.app/
+*.zip
+.build/
+build/
+dist/
 .DS_Store

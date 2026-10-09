@@ -52,7 +52,7 @@ struct BetaModelConfiguration {
     static let editableKeys: Set<String> = ["VOICE_MODE", "GPT_LIVE_VOICE", "OWNER_NAME", "LLM_PROVIDER", "CLAUDE_MODEL", "OPENAI_MODEL", "SUMMARY_PROVIDER", "SUMMARY_MODEL", "WHISPER_MODEL", "STT_BACKEND", "TTS_SPEED"]
     static let credentialKeys = ["anthropic": "ANTHROPIC_API_KEY", "openai": "OPENAI_API_KEY"]
     static func invalid(_ text: String) -> NSError {
-        NSError(domain: "AsistanBeta", code: 1, userInfo: [NSLocalizedDescriptionKey: text])
+        NSError(domain: "Asistan", code: 1, userInfo: [NSLocalizedDescriptionKey: text])
     }
     static func choices(in values: [String: String]) throws -> (conversation: BetaModelChoice, summary: BetaModelChoice) {
         let provider = values["LLM_PROVIDER"].flatMap { $0.isEmpty ? nil : $0 } ?? "anthropic"
@@ -92,7 +92,7 @@ struct BetaModelConfiguration {
     static func updating(_ text: String, with changes: [String: String]) throws -> String {
         guard changes.keys.allSatisfy({ editableKeys.contains($0) }),
               changes.values.allSatisfy({ !$0.contains("\n") && !$0.contains("\r") && !$0.contains("\0") }) else {
-            throw NSError(domain: "AsistanBeta", code: 1, userInfo: [NSLocalizedDescriptionKey: "Geçersiz model ayarı."])
+            throw NSError(domain: "Asistan", code: 1, userInfo: [NSLocalizedDescriptionKey: "Geçersiz model ayarı."])
         }
         if let voice = changes["GPT_LIVE_VOICE"] { _ = try liveVoice(in: ["GPT_LIVE_VOICE": voice]) }
         return replace(text, with: changes)

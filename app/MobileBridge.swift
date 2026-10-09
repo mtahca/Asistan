@@ -1,7 +1,7 @@
 import Foundation
 import Network
 
-final class BetaMobileClient {
+final class MobileClient {
     let connection: NWConnection
     weak var bridge: MobileBridge?
     var ready = false
@@ -63,7 +63,7 @@ final class BetaMobileClient {
     }
 }
 
-// All callbacks run on the main queue. Disabled by default, separate Beta preferences and code.
+// All callbacks run on the main queue. Disabled by default; keeps the pairing code carried over from Beta.
 final class MobileBridge {
     var onNote: ((String) -> Void)?
     var onEnd: (() -> Void)?
@@ -75,7 +75,7 @@ final class MobileBridge {
     private(set) var listening = false
     private(set) var failure: String?
     private var listener: NWListener?
-    private var clients: [BetaMobileClient] = []
+    private var clients: [MobileClient] = []
     private var transcript = MobileTranscript()
     private var state: [String: Any] = ["t": "state", "inSession": false, "caller": "", "status": "", "ringing": false, "ringer": ""]
     private var context: String?
@@ -118,34 +118,34 @@ final class MobileBridge {
             l.stateUpdateHandler = { [weak self, weak l] status in
                 guard let self = self, let l = l, self.listener === l else { return }
                 switch status {
-                case .ready: self.listening = true; self.failure = nil; logLine("Beta mobil bağlantısı hazır; port \(LiveProtocol.port)")
+                case .ready: self.listening = true; self.failure = nil; logLine("Mobil bağlantı hazır; port \(LiveProtocol.port)")
                 case .waiting, .failed:
-                    self.stopListener(); self.failure = "Mobil bağlantı açılamadı. Yerel ağ iznini ve 47822 portunu kontrol edip yeniden açın."
+                    self.stopListener(); self.failure = "Mobil bağlantı açılamadı. Yerel ağ iznini ve \(LiveProtocol.port) portunu kontrol edip yeniden açın."
                 default: break
                 }; self.onChanged?()
             }
             l.newConnectionHandler = { [weak self] connection in
                 guard let self = self, self.enabled, self.clients.count < 4 else { connection.cancel(); return }
-                let client = BetaMobileClient(connection, bridge: self); self.clients.append(client); client.start()
+                let client = MobileClient(connection, bridge: self); self.clients.append(client); client.start()
             }
             l.start(queue: .main)
-        } catch { failure = "Mobil bağlantı başlatılamadı. Yerel ağ iznini ve 47822 portunu kontrol edin."; onChanged?() }
+        } catch { failure = "Mobil bağlantı başlatılamadı. Yerel ağ iznini ve \(LiveProtocol.port) portunu kontrol edin."; onChanged?() }
     }
     private func stopListener() {
         listener?.stateUpdateHandler = nil; listener?.newConnectionHandler = nil; listener?.cancel(); listener = nil; listening = false
         let old = clients; clients.removeAll(); for client in old { client.close() }; onChanged?()
     }
-    fileprivate func clientReady(_ client: BetaMobileClient) {
+    fileprivate func clientReady(_ client: MobileClient) {
         guard enabled, clients.contains(where: { $0 === client }) else { client.close(); return }
         client.context = context
         client.send(["t": "hello", "v": LiveProtocol.version, "mac": macName])
         client.send(state); client.send(["t": "snapshot", "lines": transcript.lines]); onChanged?()
     }
-    fileprivate func drop(_ client: BetaMobileClient) {
+    fileprivate func drop(_ client: MobileClient) {
         let before = clients.count; clients.removeAll { $0 === client }
         if before != clients.count { onChanged?() }
     }
-    fileprivate func handle(_ obj: [String: Any], from client: BetaMobileClient) {
+    fileprivate func handle(_ obj: [String: Any], from client: MobileClient) {
         guard enabled, client.ready else { return }
         guard let command = MobileCommand.parse(obj) else {
             if obj["t"] as? String == "note", client.allowCommand() { notice("Not gönderilemedi: metin boş olmamalı ve en fazla 1000 karakter olabilir.", to: client) }
@@ -164,7 +164,7 @@ final class MobileBridge {
         case .ping: break
         }
     }
-    private func notice(_ text: String, to client: BetaMobileClient) {
+    private func notice(_ text: String, to client: MobileClient) {
         let id = noticeSequence; noticeSequence -= 1
         client.send(["t": "line", "id": id, "kind": "note", "speaker": "", "text": text, "ts": Date().timeIntervalSince1970])
     }

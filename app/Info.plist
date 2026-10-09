@@ -2,17 +2,35 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleName</key><string>Asistan</string>
-    <key>CFBundleDisplayName</key><string>Asistan</string>
-    <key>CFBundleIdentifier</key><string>com.mtahca.asistan</string>
-    <key>CFBundleExecutable</key><string>Asistan</string>
-    <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>1.0</string>
-    <key>CFBundleVersion</key><string>1</string>
-    <key>LSMinimumSystemVersion</key><string>12.0</string>
-    <key>CFBundleIconFile</key><string>AppIcon</string>
-    <key>LSUIElement</key><true/>
-    <key>NSMicrophoneUsageDescription</key><string>Asistan, aramadaki sesi dinlemek için mikrofon/ses girişine erişir.</string>
-    <key>NSContactsUsageDescription</key><string>Asistan, gelen aramada arayanin adini ve numarasini bulmak icin Rehbere bakar.</string>
+	<key>CFBundleDisplayName</key>
+	<string>Asistan</string>
+	<key>CFBundleExecutable</key>
+	<string>Asistan</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.mtahca.asistan</string>
+	<key>CFBundleName</key>
+	<string>Asistan</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.8.0</string>
+	<key>CFBundleVersion</key>
+	<string>20</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>14.2</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSContactsUsageDescription</key>
+	<string>Asistan, arayan ekranındaki numaraya ait kişiyi isteğe bağlı olarak bulur.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Asistan, seçtiğiniz aramanın sesini metne dönüştürür.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Asistan, eşleştirdiğiniz Asistan Mobile uygulamasına canlı metin aktarır ve arama komutlarını alır.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_asistan-canli._tcp</string>
+	</array>
 </dict>
 </plist>

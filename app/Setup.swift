@@ -30,10 +30,10 @@ final class SetupController: NSObject, NSWindowDelegate {
     }
     func build() {
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 620, height: 690), styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
-        window.title = "Asistan Beta — Kurulum ve durum"; window.isReleasedWhenClosed = false; window.delegate = self
+        window.title = "Asistan — Kurulum ve durum"; window.isReleasedWhenClosed = false; window.delegate = self
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Bilinmiyor"
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "Bilinmiyor"
-        _ = label("Asistan Beta · Sürüm \(version) · Derleme \(build)", at: NSRect(x: 24, y: 653, width: 572, height: 23), in: window.contentView!, bold: true)
+        _ = label("Asistan · Sürüm \(version) · Derleme \(build)", at: NSRect(x: 24, y: 653, width: 572, height: 23), in: window.contentView!, bold: true)
         let tabs = NSTabView(frame: NSRect(x: 20, y: 64, width: 580, height: 576))
         let statusTab = NSTabViewItem(identifier: "status"); statusTab.label = "Durum ve kontroller"
         let page = NSView(frame: NSRect(x: 0, y: 0, width: 560, height: 535))
@@ -54,7 +54,7 @@ final class SetupController: NSObject, NSWindowDelegate {
         statusTab.view = page; tabs.addTabViewItem(statusTab)
         let detailsTab = NSTabViewItem(identifier: "details"); detailsTab.label = "Kurulum ayrıntıları"
         let details = NSView(frame: page.frame)
-        _ = label("İzin anahtarı açık görünse de çalışan Beta izni kullanamayabilir. Beta’dan çıkıp erişilebilirlik listesindeki kaydı güncel uygulamayla yenileyin ve yeniden açın.", at: NSRect(x: 12, y: 459, width: 536, height: 60), in: details)
+        _ = label("İzin anahtarı açık görünse de çalışan Asistan izni kullanamayabilir. Asistan’dan çıkıp erişilebilirlik listesindeki kaydı güncel uygulamayla yenileyin ve yeniden açın. Eski Asistan Beta kaydını listeden kaldırabilirsiniz.", at: NSRect(x: 12, y: 459, width: 536, height: 60), in: details)
         _ = button("Uygulama dosyasını göster", action: #selector(revealApplication), at: NSRect(x: 12, y: 419, width: 258, height: 30), in: details)
         _ = label("Kurulum günlüğü", at: NSRect(x: 12, y: 380, width: 536, height: 24), in: details, bold: true)
         let scroll = NSScrollView(frame: NSRect(x: 12, y: 38, width: 536, height: 331)); scroll.hasVerticalScroller = true; scroll.borderType = .bezelBorder
@@ -67,7 +67,7 @@ final class SetupController: NSObject, NSWindowDelegate {
         let remote = NSView(frame: page.frame)
         _ = label("Asistan Mobile", at: NSRect(x: 12, y: 482, width: 536, height: 28), in: remote, bold: true)
         labels["mobile"] = label("", at: NSRect(x: 12, y: 421, width: 536, height: 54), in: remote)
-        _ = label("Telefondan gelen aramayı Beta ile cevaplayabilir, etkin görüşmeye not gönderebilir, canlı metni izleyebilir ve görüşmeyi sonlandırabilirsiniz. Aynı Wi-Fi ve Beta'nın ayrı eşleştirme kodu gerekir.", at: NSRect(x: 12, y: 332, width: 536, height: 80), in: remote)
+        _ = label("Telefondan gelen aramayı Asistan ile cevaplayabilir, etkin görüşmeye not gönderebilir, canlı metni izleyebilir ve görüşmeyi sonlandırabilirsiniz. Aynı Wi-Fi ve bu Mac’in eşleştirme kodu gerekir.", at: NSRect(x: 12, y: 332, width: 536, height: 80), in: remote)
         _ = button("Mobil bağlantı ve eşleştirme…", action: #selector(mobileSettings), at: NSRect(x: 12, y: 288, width: 310, height: 32), in: remote)
         _ = label("Odak sırasında otomatik cevaplama", at: NSRect(x: 12, y: 224, width: 536, height: 28), in: remote, bold: true)
         labels["focus"] = label("", at: NSRect(x: 12, y: 149, width: 536, height: 65), in: remote)
@@ -99,7 +99,7 @@ final class SetupController: NSObject, NSWindowDelegate {
         let status = app.setupStatus(); let values = app.savedSettings()
         app.focusMonitor.refresh(enabled: app.focusAuto)
         labels["mobile"]?.stringValue = app.mobile.status + (app.mobile.enabled ? "\nTelefonda seçilecek Mac: " + app.mobile.macName : "\nVarsayılan olarak kapalı. Eşleştirme ekranından açabilirsiniz.")
-        labels["focus"]?.stringValue = app.focusAuto ? app.focusMonitor.status + (app.focusMonitor.active == nil ? "\nBeta'ya Tam Disk Erişimi verip yeniden açın." : "") : "Odak sırasında otomatik cevaplama kapalı."
+        labels["focus"]?.stringValue = app.focusAuto ? app.focusMonitor.status + (app.focusMonitor.active == nil ? "\nAsistan’a Tam Disk Erişimi verip yeniden açın." : "") : "Odak sırasında otomatik cevaplama kapalı."
 
         labels["status"]?.stringValue = app.statusLine.title.isEmpty ? "Kurulum kontrol ediliyor" : app.statusLine.title
         let ready = status.audio && status.py && status.key && status.perms && app.agentReady && !app.paused && !app.busy
@@ -128,7 +128,7 @@ final class SetupController: NSObject, NSWindowDelegate {
         testButton.isEnabled = status.py && status.key && !app.busy && !installing && !checkingAPI
         testButton.title = checkingAPI ? "Bağlantı sınanıyor…" : "Seçili modellerin bağlantısını sına"
         finishButton.isEnabled = !installing && !app.busy
-        finishButton.title = app.agent?.isRunning == true ? "Kapat" : "Beta’yı başlat"
+        finishButton.title = app.agent?.isRunning == true ? "Kapat" : "Asistan’ı başlat"
         if !checkingAPI, let checked = checkedSettings {
             let current = try? String(contentsOf: app.projectDir.appendingPathComponent(".env"), encoding: .utf8)
             if current != checked { invalidateAPICheck(); feedback.stringValue = "Ayarlar değişti. Bağlantıyı yeniden sınayın." }
@@ -196,7 +196,7 @@ final class SetupController: NSObject, NSWindowDelegate {
         process.terminationHandler = { [weak self] result in
             DispatchQueue.main.async {
                 guard let self = self else { return }; self.installing = false
-                self.feedback.stringValue = result.terminationStatus == 0 ? "Ortam kuruldu. Beta’yı başlatabilirsiniz." : "Kurulum tamamlanamadı. Ayrıntılar sekmesine bakın."
+                self.feedback.stringValue = result.terminationStatus == 0 ? "Ortam kuruldu. Asistan’ı başlatabilirsiniz." : "Kurulum tamamlanamadı. Ayrıntılar sekmesine bakın."
                 self.refresh()
             }
         }

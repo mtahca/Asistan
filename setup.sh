@@ -1,56 +1,50 @@
 #!/bin/bash
-# Asistan kurulum betiği (uygulama içinden ya da elle çalıştırılır).
-# Kullanım: setup.sh <VERI_KLASORU> <KAYNAK_KLASORU>
-#   VERI_KLASORU   : ~/Library/Application Support/Asistan  (python ortamı, .env, notlar burada)
-#   KAYNAK_KLASORU : requirements.txt'nin bulunduğu klasör
-# Her adım yeniden çalıştırılabilir (zaten kuruluysa atlanır).
-set -u
+set -euo pipefail
 DATA="${1:?veri klasörü gerekli}"
 RES="${2:?kaynak klasörü gerekli}"
+MODE="${3:-local}"
+if [ "$MODE" != "local" ] && [ "$MODE" != "gpt-live" ]; then exit 1; fi
 mkdir -p "$DATA/bin"
-say()  { echo "[$(date +%H:%M:%S)] $*"; }
+chmod 700 "$DATA"
+if [ "$MODE" = "gpt-live" ]; then rm -f "$DATA/.deps_ok_online"; else rm -f "$DATA/.deps_ok"; fi
 step() { echo "STEP|$1|$2"; }
-
-if [ "$(uname -m)" != "arm64" ]; then
-  say "Bu uygulama Apple Silicon (M1/M2/M3/M4) gerektirir."
-  step arch fail
-  exit 1
-fi
-
-# 1) uv: Python'u ve paketleri hızlıca kurar (Homebrew gerekmez)
+if [ "$(uname -m)" != "arm64" ]; then echo "Asistan Apple Silicon gerektirir."; exit 1; fi
 step uv start
 if [ ! -x "$DATA/bin/uv" ]; then
-  say "uv indiriliyor…"
-  curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR="$DATA/bin" UV_NO_MODIFY_PATH=1 INSTALLER_NO_MODIFY_PATH=1 sh \
-    || { say "uv indirilemedi (internet bağlantısını kontrol et)."; step uv fail; exit 1; }
+  curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR="$DATA/bin" UV_NO_MODIFY_PATH=1 INSTALLER_NO_MODIFY_PATH=1 sh
 fi
 step uv ok
-
-# 2) Python 3.12 sanal ortamı
 step python start
-if [ ! -x "$DATA/.venv/bin/python" ]; then
-  say "Python 3.12 kuruluyor…"
-  "$DATA/bin/uv" venv --python 3.12 "$DATA/.venv" || { step python fail; exit 1; }
-fi
+if [ ! -x "$DATA/.venv/bin/python" ]; then "$DATA/bin/uv" venv --python 3.12 "$DATA/.venv"; fi
 step python ok
-
-# 3) Paketler (konuşma tanıma, ses sentezi, Claude kütüphanesi…)
 step deps start
-say "Paketler kuruluyor (birkaç dakika sürebilir)…"
-"$DATA/bin/uv" pip install --python "$DATA/.venv/bin/python" -r "$RES/requirements.txt" \
-  || { say "Paket kurulumu başarısız."; step deps fail; exit 1; }
+LOCK="$RES/requirements.lock"
+if [ "$MODE" = "gpt-live" ]; then LOCK="$RES/requirements-online.lock"; fi
+"$DATA/bin/uv" pip install --python "$DATA/.venv/bin/python" -r "$LOCK"
 step deps ok
-
-# 4) Modelleri önceden indir (ilk aramada bekleme olmasın)
+if [ "$MODE" = "gpt-live" ]; then
+  "$DATA/.venv/bin/python" -B -c 'import numpy, sounddevice, httpx, anthropic, websocket'
+  touch "$DATA/.deps_ok_online"
+  step done ok
+  exit 0
+fi
 step models start
-say "Konuşma tanıma modeli indiriliyor (≈1.6 GB, yalnızca bir kez)…"
-"$DATA/.venv/bin/python" - <<'PY' || say "Model indirmesi atlandı; ilk açılışta indirilecek."
-import os
-from huggingface_hub import snapshot_download
-snapshot_download(os.getenv("WHISPER_MODEL", "mlx-community/whisper-large-v3-turbo"))
+# Verify BOTH local speech engines; a failed download must not appear as success.
+ASISTAN_HOME="$DATA" ASISTAN_RES="$RES" "$DATA/.venv/bin/python" -B - <<'PY'
+import os, sys, importlib.util
+import numpy as np
+from pathlib import Path
+path = Path(os.environ['ASISTAN_RES']) / 'agent.py'
+sys.path.insert(0, str(path.parent))
+spec = importlib.util.spec_from_file_location('asistan_setup', path)
+agent = importlib.util.module_from_spec(spec); sys.modules[spec.name] = agent; spec.loader.exec_module(agent)
+import mlx_whisper
+mlx_whisper.transcribe(np.zeros(16000, dtype=np.float32), path_or_hf_repo=agent.WHISPER_MODEL, language='tr', verbose=None)
+from ema_lightning import EMA
+speech = EMA(device='cpu').say('Merhaba.', sample_rate=48000)
+assert len(speech.audio) > 0
+print('Konuşma tanıma ve ses üretimi doğrulandı.')
 PY
 step models ok
-
 touch "$DATA/.deps_ok"
-say "Kurulum tamamlandı."
 step done ok
