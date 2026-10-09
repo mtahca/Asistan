@@ -1,0 +1,192 @@
+import Foundation
+import Network
+
+final class BetaMobileClient {
+    let connection: NWConnection
+    weak var bridge: MobileBridge?
+    var ready = false
+    var context: String?
+    private var frames = MobileFrames()
+    private var pending: [Data] = []
+    private var queuedBytes = 0
+    private var sending = false
+    private var tokens = 5.0
+    private var lastCommand = Date()
+    private var handshakeTimer: DispatchWorkItem?
+    init(_ connection: NWConnection, bridge: MobileBridge) { self.connection = connection; self.bridge = bridge }
+    func start() {
+        let timeout = DispatchWorkItem { [weak self] in if self?.ready == false { self?.close() } }
+        handshakeTimer = timeout; DispatchQueue.main.asyncAfter(deadline: .now() + 10, execute: timeout)
+        connection.stateUpdateHandler = { [weak self] state in
+            guard let self = self else { return }
+            switch state {
+            case .ready:
+                self.handshakeTimer?.cancel(); self.ready = true
+                self.bridge?.clientReady(self); self.receive()
+            case .failed, .cancelled: self.close()
+            default: break
+            }
+        }
+        connection.start(queue: .main)
+    }
+    func allowCommand() -> Bool {
+        let now = Date(); tokens = min(5, tokens + max(0, now.timeIntervalSince(lastCommand))); lastCommand = now
+        guard tokens >= 1 else { return false }; tokens -= 1; return true
+    }
+    func close() {
+        handshakeTimer?.cancel(); ready = false; pending.removeAll(); queuedBytes = 0
+        connection.stateUpdateHandler = nil; connection.cancel(); bridge?.drop(self)
+    }
+    func send(_ obj: [String: Any]) {
+        guard ready, let data = LiveProtocol.encode(obj) else { return }
+        guard queuedBytes + data.count <= 1048576, pending.count < 128 else { close(); return }
+        queuedBytes += data.count; pending.append(data); flush()
+    }
+    private func flush() {
+        guard ready, !sending, !pending.isEmpty else { return }
+        sending = true; let data = pending.removeFirst()
+        connection.send(content: data, completion: .contentProcessed { [weak self] error in
+            guard let self = self, self.ready else { return }
+            self.queuedBytes -= data.count; self.sending = false
+            if error != nil { self.close() } else { self.flush() }
+        })
+    }
+    private func receive() {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 16384) { [weak self] data, _, done, error in
+            guard let self = self, self.ready else { return }
+            if let data = data {
+                do { for obj in try self.frames.consume(data) { self.bridge?.handle(obj, from: self) } }
+                catch { self.close(); return }
+            }
+            if done || error != nil { self.close(); return }; self.receive()
+        }
+    }
+}
+
+// All callbacks run on the main queue. Disabled by default, separate Beta preferences and code.
+final class MobileBridge {
+    var onNote: ((String) -> Void)?
+    var onEnd: (() -> Void)?
+    var onAnswer: (() -> Void)?
+    var onChanged: (() -> Void)?
+    private let defaults: UserDefaults
+    private(set) var enabled: Bool
+    private(set) var code: String
+    private(set) var listening = false
+    private(set) var failure: String?
+    private var listener: NWListener?
+    private var clients: [BetaMobileClient] = []
+    private var transcript = MobileTranscript()
+    private var state: [String: Any] = ["t": "state", "inSession": false, "caller": "", "status": "", "ringing": false, "ringer": ""]
+    private var context: String?
+    private var paused = false
+    private var stopping = false
+    private var noticeSequence = -1
+    let macName: String
+    var clientCount: Int { clients.filter { $0.ready }.count }
+    var displayCode: String { String(code.prefix(4)) + " " + String(code.suffix(4)) }
+    var status: String {
+        if !enabled { return "Mobil bağlantı kapalı" }
+        if let failure = failure { return failure }
+        return listening ? "Mobil bağlantı açık · \(clientCount) cihaz bağlı" : "Mobil bağlantı başlatılıyor…"
+    }
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        enabled = defaults.bool(forKey: "betaMobileEnabled")
+        macName = LiveProtocol.serviceName(host: Host.current().localizedName ?? "Mac")
+        if let stored = defaults.string(forKey: "betaMobileCode"), stored.utf8.count == 8, stored.utf8.allSatisfy({ (48...57).contains($0) }) { code = stored }
+        else { code = Self.newCode(); defaults.set(code, forKey: "betaMobileCode") }
+    }
+    static func newCode() -> String { String(format: "%08d", Int.random(in: 0..<100_000_000)) }
+    func startIfEnabled() { if enabled { startListener() } }
+    func setEnabled(_ value: Bool) {
+        enabled = value; defaults.set(value, forKey: "betaMobileEnabled")
+        if value { startListener() } else { stopListener() }; onChanged?()
+    }
+    func regenerateCode() {
+        let old = code
+        repeat { code = Self.newCode() } while code == old
+        defaults.set(code, forKey: "betaMobileCode")
+        stopListener(); if enabled { startListener() }; onChanged?()
+    }
+    func shutdown() { stopListener() }
+    private func startListener() {
+        guard listener == nil else { return }; failure = nil; listening = false
+        do {
+            let l = try NWListener(using: LiveProtocol.parameters(code: code), on: NWEndpoint.Port(rawValue: LiveProtocol.port)!)
+            listener = l; l.service = NWListener.Service(name: macName, type: LiveProtocol.serviceType)
+            l.stateUpdateHandler = { [weak self, weak l] status in
+                guard let self = self, let l = l, self.listener === l else { return }
+                switch status {
+                case .ready: self.listening = true; self.failure = nil; logLine("Beta mobil bağlantısı hazır; port \(LiveProtocol.port)")
+                case .waiting, .failed:
+                    self.stopListener(); self.failure = "Mobil bağlantı açılamadı. Yerel ağ iznini ve 47822 portunu kontrol edip yeniden açın."
+                default: break
+                }; self.onChanged?()
+            }
+            l.newConnectionHandler = { [weak self] connection in
+                guard let self = self, self.enabled, self.clients.count < 4 else { connection.cancel(); return }
+                let client = BetaMobileClient(connection, bridge: self); self.clients.append(client); client.start()
+            }
+            l.start(queue: .main)
+        } catch { failure = "Mobil bağlantı başlatılamadı. Yerel ağ iznini ve 47822 portunu kontrol edin."; onChanged?() }
+    }
+    private func stopListener() {
+        listener?.stateUpdateHandler = nil; listener?.newConnectionHandler = nil; listener?.cancel(); listener = nil; listening = false
+        let old = clients; clients.removeAll(); for client in old { client.close() }; onChanged?()
+    }
+    fileprivate func clientReady(_ client: BetaMobileClient) {
+        guard enabled, clients.contains(where: { $0 === client }) else { client.close(); return }
+        client.context = context
+        client.send(["t": "hello", "v": LiveProtocol.version, "mac": macName])
+        client.send(state); client.send(["t": "snapshot", "lines": transcript.lines]); onChanged?()
+    }
+    fileprivate func drop(_ client: BetaMobileClient) {
+        let before = clients.count; clients.removeAll { $0 === client }
+        if before != clients.count { onChanged?() }
+    }
+    fileprivate func handle(_ obj: [String: Any], from client: BetaMobileClient) {
+        guard enabled, client.ready else { return }
+        guard let command = MobileCommand.parse(obj) else {
+            if obj["t"] as? String == "note", client.allowCommand() { notice("Not gönderilemedi: metin boş olmamalı ve en fazla 1000 karakter olabilir.", to: client) }
+            return
+        }
+        if command == .ping { client.send(["t": "pong"]); return }
+        guard client.allowCommand(), client.context == context, context != nil,
+              command.allowed(ringing: state["ringing"] as? Bool ?? false,
+                              inSession: state["inSession"] as? Bool ?? false, paused: paused, stopping: stopping) else {
+            notice("Komut uygulanmadı: etkin arama durumunu kontrol edin.", to: client); return
+        }
+        switch command {
+        case .answer: onAnswer?()
+        case .end: onEnd?()
+        case .note(let text): onNote?(text)
+        case .ping: break
+        }
+    }
+    private func notice(_ text: String, to client: BetaMobileClient) {
+        let id = noticeSequence; noticeSequence -= 1
+        client.send(["t": "line", "id": id, "kind": "note", "speaker": "", "text": text, "ts": Date().timeIntervalSince1970])
+    }
+    private func broadcast(_ obj: [String: Any]) { for client in clients where client.ready { client.send(obj) } }
+    func setState(inSession: Bool, caller: String, startedAt: Date?, status: String, ringing: Bool, ringer: String,
+                  context: String?, paused: Bool, stopping: Bool) {
+        self.context = context; self.paused = paused; self.stopping = stopping
+        var next: [String: Any] = ["t": "state", "inSession": inSession, "caller": caller, "status": status, "ringing": ringing, "ringer": ringer]
+        if let start = startedAt { next["startedAt"] = start.timeIntervalSince1970 }
+        guard !NSDictionary(dictionary: state).isEqual(to: next) || clients.contains(where: { $0.context != context }) else { return }
+        state = next
+        for client in clients where client.ready { client.context = context; client.send(next) }
+    }
+    func reset() { transcript.reset(); broadcast(["t": "reset"]) }
+    func append(kind: String, speaker: String, text: String) {
+        let previousCount = transcript.lines.count
+        let row = transcript.append(kind: kind, speaker: speaker, text: text)
+        // A byte limit may evict old rows before the 200-row limit. Keep iOS bounded too.
+        if transcript.lines.count <= previousCount { broadcast(["t": "snapshot", "lines": transcript.lines]) }
+        else { var obj = row; obj["t"] = "line"; broadcast(obj) }
+    }
+    func replace(_ rows: [(String, String, String)]) {
+        transcript.replace(rows); broadcast(["t": "snapshot", "lines": transcript.lines])
+    }
+}
