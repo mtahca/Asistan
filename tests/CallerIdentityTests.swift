@@ -3,7 +3,10 @@ import Foundation
 @main struct CallerIdentityTests {
     static func main() {
         var checks = 0
-        func check(_ condition: Bool) { precondition(condition); checks += 1 }
+        func check(_ condition: Bool, line: Int = #line) {
+            if !condition { print("Arayan bilgisi: satır \(line) başarısız."); exit(1) }
+            checks += 1
+        }
         func label(_ role: String, _ attribute: CallerAttribute, _ text: String) -> CallerLabel {
             CallerLabel(role: role, attribute: attribute, value: text)
         }
@@ -101,6 +104,10 @@ import Foundation
         check(real.name == "Mehmet Tahça"); check(real.number.isEmpty)
         let realRelay = extractCaller(from: [label("AXGenericElement", .description, "\u{202A}Aşkım\u{202C}, From\u{A0}Your\u{A0}iPhone")], source: .apple)
         check(realRelay.name == "Aşkım")
+        let recentsRow = extractCaller(from: [
+            label("AXWindow", .identifier, "FACETIME_NOTIFICATION"),
+            label("AXUnknown", .description, "Deniz Taşçı, Outgoing FaceTime Audio, 6 calls, 17:56, Call")], source: .apple)
+        check(recentsRow.name.isEmpty && recentsRow.number.isEmpty)
         let whatsappGroup = extractCaller(from: [label("AXGroup", .description, "Deniz Taşçı, FaceTime Audio")], source: .whatsapp)
         check(whatsappGroup.name.isEmpty)
         let fallbackCaller = callerAfterConnection(incoming: CallerInfo(), connected: group)

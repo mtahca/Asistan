@@ -86,21 +86,22 @@ func extractCaller(from labels: [CallerLabel], source: CallSource) -> CallerInfo
     // "Name, FaceTime Audio" label, as "Name\nFaceTime Audio", or as separate elements.
     // Only accept text that sits next to an explicit call-type label.
     if source == .apple && info.name.isEmpty && info.number.isEmpty {
-        let types = Set(["facetime", "facetime audio", "facetime video", "from your iphone", "from iphone",
-            "iphone’unuzdan", "iphone'unuzdan", "phone", "telefon", "mobile", "cellular",
-            "gelen arama", "gelen sesli arama", "sesli arama", "incoming call", "audio", "video"])
-        func isType(_ part: String) -> Bool {
-            let text = part.lowercased()
-            return types.contains(text) || ["facetime", "iphone"].contains(where: text.contains)
-        }
+        // Exact matches only: "Outgoing FaceTime Audio, 6 calls, …" in the Phone app's Recents
+        // list must never pass. clean() already turned no-break spaces into spaces.
+        let types = Set(["facetime", "facetime audio", "facetime video", "facetime sesli", "facetime görüntülü",
+            "from your iphone", "from iphone", "iphone’unuzdan", "iphone'unuzdan", "iphone’dan", "iphone'dan",
+            "phone", "telefon", "mobile", "cellular", "gelen arama", "gelen sesli arama", "sesli arama",
+            "incoming call", "audio", "video"])
+        func isType(_ part: String) -> Bool { types.contains(part.lowercased()) }
         let controls = Set(["AXButton", "AXMenuButton", "AXPopUpButton", "AXMenu", "AXMenuItem", "AXMenuBar", "AXMenuBarItem", "AXWindow", "AXApplication"])
         let visible = content.filter { !controls.contains($0.role) && [.description, .value, .title].contains($0.attribute) }
         // One element carrying both parts.
         for label in visible {
+            // Banner shape is exactly "Name, Type" (or "Name⏎Type"); anything longer is a list row.
             let parts = clean(label.value).components(separatedBy: CharacterSet.newlines).flatMap { $0.components(separatedBy: ", ") }
                 .map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
-            guard parts.count >= 2, parts.contains(where: isType) else { continue }
-            for part in parts where !isType(part) { assign(part) }
+            guard parts.count == 2, isType(parts[1]), !isType(parts[0]) else { continue }
+            assign(parts[0])
             if !info.name.isEmpty || !info.number.isEmpty { return info }
         }
         // Separate elements, accepted only inside a notification banner subtree.
