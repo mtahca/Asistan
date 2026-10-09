@@ -593,7 +593,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let home = URL(fileURLWithPath: NSHomeDirectory())
         let betaRunning = !NSRunningApplication.runningApplications(withBundleIdentifier: AppMigration.legacyBundleID).isEmpty
         projectDir = AppMigration.resolveDataDirectory(home: home, legacyRunning: betaRunning)
-        usingLegacyData = projectDir == AppMigration.legacyDataDirectory(home: home)
+        usingLegacyData = projectDir.path == AppMigration.legacyDataDirectory(home: home).path
         resDir = Bundle.main.resourceURL ?? Bundle.main.bundleURL.deletingLastPathComponent()
         try? FileManager.default.createDirectory(at: projectDir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
     }
