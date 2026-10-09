@@ -90,6 +90,17 @@ import Foundation
         check(typeOnly.name.isEmpty && typeOnly.number.isEmpty)
         let unknownNumber = extractCaller(from: [label("AXUnknown", .value, "+90 555 123 45 67, From Your iPhone")], source: .apple)
         check(unknownNumber.number == "+90 555 123 45 67" && unknownNumber.name.isEmpty)
+        // Exact label from a real macOS banner (son_arama_tani.txt): LRE/PDF marks and a no-break space.
+        let real = extractCaller(from: [
+            label("AXGroup", .description, "FaceTime Notification"),
+            label("AXGroup", .identifier, "FACETIME_NOTIFICATION"),
+            label("AXGenericElement", .description, "\u{202A}Mehmet Tahça\u{202C}, FaceTime\u{A0}Audio"),
+            label("AXButton", .description, "Answer"),
+            label("AXPopUpButton", .description, "Decline"),
+            label("AXPopUpButton", .identifier, "menuControlIdentifier")], source: .apple)
+        check(real.name == "Mehmet Tahça"); check(real.number.isEmpty)
+        let realRelay = extractCaller(from: [label("AXGenericElement", .description, "\u{202A}Aşkım\u{202C}, From\u{A0}Your\u{A0}iPhone")], source: .apple)
+        check(realRelay.name == "Aşkım")
         let whatsappGroup = extractCaller(from: [label("AXGroup", .description, "Deniz Taşçı, FaceTime Audio")], source: .whatsapp)
         check(whatsappGroup.name.isEmpty)
         let fallbackCaller = callerAfterConnection(incoming: CallerInfo(), connected: group)

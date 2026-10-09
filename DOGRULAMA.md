@@ -1,5 +1,9 @@
 # Doğrulama
 
+## 0.8.6
+
+0.8.5'in kaydettiği `son_arama_tani.txt` gerçek FaceTime bildirimini gösterdi: `AXGenericElement description: ‪Mehmet Tahça‬, FaceTime Audio`. Ad U+202A/U+202C yön işaretleriyle sarılı, "FaceTime Audio" içindeki boşluk U+00A0 (bölünmez). Bölünmez boşluk tür eşleşmesini bozuyordu. `clean` artık bu boşlukları normal boşluğa çevirir; "facetime"/"iphone" içeren parçalar tür sayılır. Gerçek etiket birebir teste eklendi (`CallerIdentityTests` +3). Telefon (iPhone aktarmalı) ve WhatsApp aramalarında ad 0.8.5 ile doğrulanmıştı.
+
 ## 0.8.5
 
 Kullanıcının ekran görüntülerinde FaceTime, iPhone aktarmalı ve WhatsApp aramalarında arayan adı bildirimde görünüyordu; WhatsApp'ta tanınıyor, Apple bildirimlerinde "Bilinmiyor" kalıyordu. `extractCaller` artık Bildirim Merkezi'nin `AXUnknown`/`AXGroup` öğelerini de okur (`CallerIdentityTests` +6 kontrol). Gerçek bildirim yapısı elde olmadığı için kurallar tahmine dayanır; arayan bulunamayan her çalışta `son_arama_tani.txt` yazılır. Bu dosya kişi adı içerir ve yalnızca yereldir.

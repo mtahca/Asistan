@@ -1,4 +1,4 @@
-# Asistan 0.8.5
+# Asistan 0.8.6
 
 macOS menü çubuğunda çalışan yapay zekâ telefon asistanı. iPhone–Mac arama aktarımıyla gelen Telefon/FaceTime ve WhatsApp masaüstü sesli aramalarını karşılar, arayanla Türkçe konuşur ve görüşme notu çıkarır. Görüşmeyi canlı metinden izleyebilir, asistana not gönderebilir, görüşmeyi devralabilir veya sonlandırabilirsiniz. Aynı işleri **Asistan Mobile** ile iPhone'dan da yapabilirsiniz.
 
@@ -108,6 +108,7 @@ Testler kurulu Python ortamını kullanır (`~/Documents/Asistan Data/.venv`). B
 
 ## Sürüm geçmişi
 
+- **0.8.6** — FaceTime/iPhone bildirimindeki arayan adı gerçek yapıya göre düzeltildi: `AXGenericElement` öğesi, yön işaretleri ve "FaceTime Audio" içindeki bölünmez boşluk artık sorun çıkarmıyor.
 - **0.8.5** — FaceTime ve iPhone aramalarında arayan adı: Bildirim Merkezi'nin `AXUnknown`/`AXGroup` öğelerindeki "Ad, FaceTime Audio", "Ad⏎From Your iPhone" ve ayrı öğe biçimleri tanınır; numara görünüyorsa nota yazılır. Arayan yine bulunamazsa bildirimin ham yapısı `son_arama_tani.txt` dosyasına kaydedilir.
 - **0.8.4** — Asistan Mobile 0.2 için protokol alanları: `state` içinde arama kaynağı, duraklatma ve devralma durumu, `hello` içinde sürüm; telefondan `pause` komutu (görüşme yokken). Eski Mobile sürümleri etkilenmez.
 - **0.8.3** — GPT-Live bağlantısı görüşme ortasında koparsa aynı aramada en fazla iki kez otomatik yeniden bağlanılır; yeni oturum konuşmanın geçmişini alır ve karşılamayı tekrarlamaz. Kısa ağ duraksamaları artık görüşmeyi bitirmez (gönderim yeniden denenir, ses karesi düşürülür). Menü durumu ve gelen arama paneli arayan adını gösterir. Görüşme notuna süre eklendi. Ayar dosyası her 0,4 sn yerine yalnızca değiştiğinde okunur.
