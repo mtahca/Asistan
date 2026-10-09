@@ -355,7 +355,8 @@ class LiveCall:
             self.set_note_status(self.note_acks.pop(event.get('client_event_id')),'model kabul etti; duyulması doğrulanmadı')
         elif kind in ('session.input_transcript.delta','session.output_transcript.delta'):
             if self.transcript.add(event): self.caption_dirty=True
-            if kind=='session.output_transcript.delta' and event.get('delta','').strip(): self.output_text_seen=True
+            if kind=='session.output_transcript.delta' and event.get('delta','').strip():
+                self.output_text_seen=True; self.detect_mutual_farewell()
             if kind=='session.input_transcript.delta':
                 self.last_input=time.monotonic(); self.ending=False;self.input_revision+=1
             elif self.ending:
@@ -377,12 +378,27 @@ class LiveCall:
                     self.s.reason='error';self.s.stop.set()
                     self.agent.emit('error',self.s.id,text='GPT-Live oturumu sona erdi. Aramayı devralabilirsiniz.')
 
+    FAREWELLS=('hoşça kal','hoşçakal','iyi günler','iyi akşamlar','iyi geceler','görüşmek üzere','görüşürüz','güle güle','kendine iyi bak','kendinize iyi bak','bay bay','baybay')
+
+    def detect_mutual_farewell(self):
+        """Live says goodbye itself, without the backend's [BITTI] marker. When the caller's last
+        words and the assistant's current reply both contain a farewell, close after the audio."""
+        if self.ending: return
+        rows=self.transcript.rows()
+        if not rows or rows[-1]['speaker']=='Arayan': return
+        assistant=rows[-1]['text'].lower()[-200:]
+        if not any(f in assistant for f in self.FAREWELLS): return
+        caller=next((r['text'].lower()[-200:] for r in reversed(rows) if r['speaker']=='Arayan'),'')
+        if not any(f in caller for f in self.FAREWELLS): return
+        self.ending=True; self.ending_spoken=True; self.ending_text=''; self.end_requested=time.monotonic()
+        self.agent.emit('live_status',self.s.id,text='Karşılıklı vedalaşma algılandı; görüşme kapanıyor.')
+
     def ensure_greeting(self):
         if self.s.stop.is_set() or self.greeting_sent_at is None: return
         elapsed=time.monotonic()-self.greeting_sent_at
         # Accepted instructions may still leave Live waiting. One speakable cue,
         # only while both sides remain silent; never repeat or interrupt a caller.
-        if elapsed>2 and self.greeting_ack and not self.greeting_fallback and not self.first_output and not self.output_text_seen and self.input_revision==0 and not self.caller_audio_seen:
+        if elapsed>1 and self.greeting_ack and not self.greeting_fallback and not self.first_output and not self.output_text_seen and self.input_revision==0 and not self.caller_audio_seen:
             self.greeting_fallback=True
             for chunk in context_chunks(self.greeting):
                 self.connection.send('session.commentary.append',delegation_id=None,content=chunk)

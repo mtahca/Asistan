@@ -103,11 +103,11 @@ class LiveTests(unittest.TestCase):
             c.ensure_greeting();c.ensure_greeting()
         self.assertEqual(c.connection.sent,[('session.commentary.append',{'delegation_id':None,'content':'Karşılama'})])
 
-    def test_greeting_nudge_waits_two_seconds_and_ack_then_runs_once(self):
+    def test_greeting_nudge_waits_one_second_and_ack_then_runs_once(self):
         c=self.call();c.connection=Connection();c.greeting_sent_at=0;c.greeting_ack=True
-        with patch.object(live.time,'monotonic',return_value=1.9):c.ensure_greeting()
+        with patch.object(live.time,'monotonic',return_value=0.9):c.ensure_greeting()
         self.assertEqual(c.connection.sent,[])
-        with patch.object(live.time,'monotonic',return_value=2.1):c.ensure_greeting();c.ensure_greeting()
+        with patch.object(live.time,'monotonic',return_value=1.1):c.ensure_greeting();c.ensure_greeting()
         self.assertEqual(len(c.connection.sent),1)
 
     def test_greeting_never_repeats_after_caller_or_assistant_or_stop(self):
@@ -293,6 +293,21 @@ class LiveTests(unittest.TestCase):
     def test_caller_correction_cancels_pending_auto_close(self):
         c=self.call();c.ending=True;c.handle_event(delta('input','Hayır, bir şey daha var.',100,200))
         self.assertFalse(c.ending)
+
+    def test_mutual_farewell_ends_the_call_without_backend_marker(self):
+        c=self.call()
+        c.handle_event(delta('input','Tamam, hoşça kalın.',0,900,'a'))
+        c.handle_event(delta('output','Hoşça kalın, iyi gün',1000,1800,'b'));c.handle_event(delta('output','ler!',1800,2000,'c'))
+        self.assertTrue(c.ending);self.assertTrue(c.ending_spoken)
+        self.assertTrue(any('vedalaşma' in kw.get('text','') for args,kw in self.emitted if args[0]=='live_status'))
+        # Caller keeps talking: the ending is withdrawn, as before.
+        c.handle_event(delta('input','Bir şey daha soracaktım',2500,3200,'d'))
+        self.assertFalse(c.ending)
+        # Assistant alone saying "iyi günler" mid-call does not end it.
+        c2=self.call()
+        c2.handle_event(delta('input','Randevu yarın mı?',0,900,'a'))
+        c2.handle_event(delta('output','Evet, iyi günler dilerim, yarın 10:00.',1000,2000,'b'))
+        self.assertFalse(c2.ending)
 
     def test_goodbye_can_be_split_across_fragments(self):
         c=self.call();c.ending=True
