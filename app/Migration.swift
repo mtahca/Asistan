@@ -10,8 +10,9 @@ enum AppMigration {
     static let preferenceKeys = ["autoMode", "paused", "showLive", "betaFocusAuto", "betaMobileEnabled",
                                  "betaMobileCode", "humanMicrophoneUID"]
 
-    static func dataDirectory(home: URL) -> URL { home.appendingPathComponent("Documents/Asistan Data") }
-    static func legacyDataDirectory(home: URL) -> URL { home.appendingPathComponent("Documents/Codex/Asistan Beta Data") }
+    // isDirectory keeps the URL identical whether or not the folder exists yet.
+    static func dataDirectory(home: URL) -> URL { home.appendingPathComponent("Documents/Asistan Data", isDirectory: true) }
+    static func legacyDataDirectory(home: URL) -> URL { home.appendingPathComponent("Documents/Codex/Asistan Beta Data", isDirectory: true) }
 
     /// Returns the folder to use. Beta's folder moves only when it exists, the new one does not,
     /// and Beta is not running (its agent may be writing there).

@@ -1,7 +1,10 @@
 import Foundation
 @main struct MigrationNotesTests {
     static var count = 0
-    static func check(_ value: Bool) { count += 1; precondition(value) }
+    static func check(_ value: Bool, line: Int = #line) {
+        count += 1
+        if !value { print("Geçiş ve son notlar: satır \(line) başarısız."); exit(1) }
+    }
     static func main() throws {
         let fm = FileManager.default
         let home = fm.temporaryDirectory.appendingPathComponent("asistan-migration-" + UUID().uuidString)
@@ -9,24 +12,24 @@ import Foundation
         let legacy = AppMigration.legacyDataDirectory(home: home), current = AppMigration.dataDirectory(home: home)
 
         // No Beta data: the new folder is used and nothing is created early.
-        check(AppMigration.resolveDataDirectory(home: home, legacyRunning: false) == current)
+        check(AppMigration.resolveDataDirectory(home: home, legacyRunning: false).path == current.path)
         check(!fm.fileExists(atPath: current.path))
 
         // Beta still running: keep its folder in place.
         try fm.createDirectory(at: legacy.appendingPathComponent("notlar"), withIntermediateDirectories: true)
         try "ANTHROPIC_API_KEY=x\n".write(to: legacy.appendingPathComponent(".env"), atomically: true, encoding: .utf8)
-        check(AppMigration.resolveDataDirectory(home: home, legacyRunning: true) == legacy)
+        check(AppMigration.resolveDataDirectory(home: home, legacyRunning: true).path == legacy.path)
         check(fm.fileExists(atPath: legacy.path))
 
         // Beta closed: its folder moves with its contents.
-        check(AppMigration.resolveDataDirectory(home: home, legacyRunning: false) == current)
+        check(AppMigration.resolveDataDirectory(home: home, legacyRunning: false).path == current.path)
         check(!fm.fileExists(atPath: legacy.path))
         check(fm.fileExists(atPath: current.appendingPathComponent(".env").path))
         check(fm.fileExists(atPath: current.appendingPathComponent("notlar").path))
 
         // Both exist: the new folder wins and Beta's is left untouched.
         try fm.createDirectory(at: legacy, withIntermediateDirectories: true)
-        check(AppMigration.resolveDataDirectory(home: home, legacyRunning: false) == current)
+        check(AppMigration.resolveDataDirectory(home: home, legacyRunning: false).path == current.path)
         check(fm.fileExists(atPath: legacy.path))
 
         let suite = "asistan-migration-tests-" + UUID().uuidString
