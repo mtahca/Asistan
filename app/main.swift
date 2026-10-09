@@ -1252,7 +1252,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let info = extractCaller(from: result.texts, source: result.source)
         guard info.name.isEmpty && info.number.isEmpty else { return }
         ringDiagnosticSaved = true
-        var out = "Arayan bulunamadı — \(Date())\nKaynak: \(result.source.rawValue)\n\n"
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?"
+        var out = "Arayan bulunamadı — \(Date())\nSürüm: \(version) · Derleme \(build)\nKaynak: \(result.source.rawValue)\n\n"
         for label in result.texts { out += "\(label.role) \(label.attribute): \(label.value.replacingOccurrences(of: "\n", with: "⏎"))\n" }
         let url = projectDir.appendingPathComponent("son_arama_tani.txt")
         try? out.write(to: url, atomically: true, encoding: .utf8)
