@@ -432,6 +432,10 @@ class Session:
     def path(self) -> Path:
         return BASE / "notlar" / f"{self.started:%Y-%m-%d_%H-%M-%S}_{self.id[:8]}.md"
 
+    def duration_text(self) -> str:
+        seconds = max(0, int((datetime.now() - self.started).total_seconds()))
+        return f"{seconds // 60:02d}:{seconds % 60:02d}"
+
     def write(self, summary: str = "Özet hazırlanmayı bekliyor.") -> None:
         with self.lock:
             notes = "\n".join(f"- {n['text']} — {n['status']}" for n in self.notes) or "Not gönderilmedi."
@@ -439,7 +443,7 @@ class Session:
             atomic_write(self.path,
                 f"# Asistan — {self.started:%d.%m.%Y %H:%M}\n\n"
                 f"Arayan ekranı: {caller_summary(self.caller) or 'belirtilmedi'}\n\n"
-                f"Durum: {self.reason}\n\n## Kullanıcının notları\n{notes}\n\n"
+                f"Süre: {self.duration_text()} · Durum: {self.reason}\n\n## Kullanıcının notları\n{notes}\n\n"
                 f"## Özet\n{summary}\n\n## Döküm\n{text}\n")
             if self.live_fragments:
                 try:

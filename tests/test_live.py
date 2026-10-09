@@ -328,4 +328,89 @@ class LiveCallIntegrationTests(unittest.TestCase):
         self.assertEqual(greeting_commands[0]['event_id'],call.greeting_id)
         self.assertTrue(any(base64.b64decode(x)==bytes(720*2) for x in audio))
 
+    def test_broken_connection_is_replaced_within_the_same_call(self):
+        owner=LiveTests();call=owner.call()
+        class Stream:
+            def __init__(self,**options):self.options=options
+            def start(self):
+                if self.options['callback']==call.capture:
+                    for _ in range(6):call.capture(np.zeros((720,2),dtype=np.float32),720,None,None)
+            def stop(self):pass
+            def close(self):pass
+        connections=[]
+        class Flaky(Connection):
+            def send(self,kind,**fields):
+                fields.pop('drop_on_timeout',None)
+                super().send(kind,**fields)
+                sent_audio=sum(1 for k,_ in self.sent if k=='session.input_audio.append')
+                if len(connections)==1 and sent_audio==2:raise live.LiveError('GPT-Live bağlantısına veri gönderilemedi.')
+                if len(connections)==2 and sent_audio==2:call.s.reason='takeover';call.s.stop.set()
+                if kind=='session.instructions.append':self.events.put(delta('input','Merhaba',0,100,'a'))
+        def factory(key):
+            # The capture callback keeps running during a reconnect; emulate fresh frames.
+            for _ in range(4):call.audio.put(np.zeros(720,dtype=np.float32))
+            c=Flaky();connections.append(c);return c
+        call.factory=factory
+        call.agent.sd=SimpleNamespace(InputStream=Stream,OutputStream=Stream)
+        call.agent.live_key='dummy';call.agent.in_idx=1;call.agent.out_idx=2;call.agent.live_threshold=0.01
+        call.agent._expired=lambda session,started:session.stop.is_set()
+        import io,contextlib
+        with contextlib.redirect_stderr(io.StringIO()):
+            try:call.run()
+            finally:call.s.stop.set();call.close()
+        self.assertEqual(len(connections),2);self.assertEqual(call.s.reason,'takeover')
+        self.assertTrue(connections[0].closed)
+        second=dict(connections[1].sent)['session.start']['session']['instructions']
+        self.assertIn('BAĞLANTI YENİLENDİ',second);self.assertIn('Arayan: Merhaba',second)
+        self.assertNotIn('session.instructions.append',[k for k,_ in connections[1].sent])
+        notices=[kw['text'] for args,kw in owner.emitted if args[0]=='live_notice']
+        self.assertEqual(len(notices),2);self.assertIn('yeniden bağlan',notices[0])
+
+    def test_reconnect_limit_reports_the_server_reason(self):
+        owner=LiveTests();call=owner.call()
+        class Stream:
+            def __init__(self,**options):self.options=options
+            def start(self):
+                if self.options['callback']==call.capture:
+                    for _ in range(20):call.capture(np.zeros((720,2),dtype=np.float32),720,None,None)
+            def stop(self):pass
+            def close(self):pass
+        class Dying(Connection):
+            def send(self,kind,**fields):
+                fields.pop('drop_on_timeout',None);super().send(kind,**fields)
+                if kind=='session.input_audio.append':
+                    self.events.put({'type':'error','error':{'code':'rate_limit_exceeded'}})
+                    raise live.LiveError('GPT-Live bağlantısına veri gönderilemedi.')
+        def factory(key):
+            for _ in range(4):call.audio.put(np.zeros(720,dtype=np.float32))
+            return Dying()
+        call.factory=factory
+        call.agent.sd=SimpleNamespace(InputStream=Stream,OutputStream=Stream)
+        call.agent.live_key='dummy';call.agent.in_idx=1;call.agent.out_idx=2;call.agent.live_threshold=0.01
+        call.agent._expired=lambda session,started:session.stop.is_set()
+        import io,contextlib
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(live.LiveError) as raised:call.run()
+            call.s.stop.set();call.close()
+        self.assertIn('kota',str(raised.exception))
+
+    def test_send_retries_timeouts_and_drops_audio(self):
+        class TimeoutOnce(Exception):pass
+        class WS:
+            def __init__(self):self.calls=0;self.fail=1
+            def getstatus(self):return 101
+            def settimeout(self,t):pass
+            def send(self,payload):
+                self.calls+=1
+                if self.calls<=self.fail:raise TimeoutOnce()
+            def shutdown(self):pass
+        ws=WS();c=live.LiveConnection('dummy',factory=lambda *a,**k:ws);c.timeout_error=TimeoutOnce
+        self.assertIsNotNone(c.send('session.commentary.append',delegation_id=None,content='x'));self.assertEqual(ws.calls,2)
+        ws.calls=0;self.assertIsNone(c.send('session.input_audio.append',audio='',drop_on_timeout=True));self.assertEqual(ws.calls,1)
+        ws.calls=0;ws.fail=99
+        import io,contextlib
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(live.LiveError):c.send('session.commentary.append',delegation_id=None,content='x')
+        self.assertEqual(ws.calls,3)
+
 if __name__=='__main__':unittest.main()

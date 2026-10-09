@@ -1,5 +1,11 @@
 # Doğrulama
 
+## 0.8.3
+
+GPT-Live: bağlantı koptuğunda aynı aramada yeniden bağlanma (`LiveCall.reconnect`) ve gönderimde zaman aşımı yeniden denemesi eklendi. Üç yeni Python testi bunları sınar: yeniden bağlanan oturumun geçmişi alması ve karşılamayı tekrarlamaması, iki denemeden sonra sunucunun asıl gerekçesinin bildirilmesi, kontrol mesajlarının yeniden denenip ses karelerinin düşürülmesi. Python testleri: 99.
+
+Elle kontrol: bir GPT-Live görüşmesi sırasında Mac'in Wi-Fi'sini 2–3 saniye kapatıp açın. Canlı pencerede "yeniden bağlanılıyor" ve "yeniden bağlandı" notları görünmeli; asistan kendini yeniden tanıtmadan devam etmeli. Görüşme sonunda `live_usage` toplam süreyi iki oturumun toplamı olarak vermeli.
+
 ## 0.8.2
 
 0.8.1 gerçek Telefon aramalarında doğrulandı: günlükte "Telefon: mikrofon Asistan Mikrofonu ✓" ve "Asistan Mikrofonu’nu kullanan: com.apple.avconferenced" satırları görüldü.
