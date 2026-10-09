@@ -38,7 +38,7 @@ class BetaTests(unittest.TestCase):
     def test_online_session_cleanup_preserves_takeover_and_summary(self):
         a=self.agent();a.out_idx=9;s=self.session();cleanup=[]
         class Call:
-            def __init__(self,*args):pass
+            def __init__(self,*args,**kwargs):pass
             def run(self):s.reason='takeover';s.stop.set()
             def close(self):cleanup.append('released')
         def bridge(session):

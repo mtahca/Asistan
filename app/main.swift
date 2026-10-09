@@ -133,6 +133,8 @@ final class CallObserver {
     private var connectedCallers: [CallSource: CallerInfo] = [:]
     private var updated = Date.distantPast
     private var started = false
+    /// While an answered call is being confirmed, poll faster so the session starts sooner.
+    var urgent = false
     func start() {
         guard !started else { return }; started = true
         queue.async { self.poll() }
@@ -156,7 +158,7 @@ final class CallObserver {
             }
         }
         lock.lock(); incoming = found; controls = endings; connectedCallers = callers; updated = Date(); lock.unlock()
-        queue.asyncAfter(deadline: .now() + 0.6) { self.poll() }
+        queue.asyncAfter(deadline: .now() + (urgent ? 0.2 : 0.6)) { self.poll() }
     }
     func result() -> ScanResult {
         lock.lock(); defer { lock.unlock() }
@@ -1225,6 +1227,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             if sessionSource.flatMap({ callControl(for: $0) }) != nil {
                 wasCallActive = true
                 connectionDeadline = nil
+                CallObserver.shared.urgent = false
                 startConfirmedSession()
             } else if Date() >= deadline {
                 connectionDeadline = nil
@@ -1295,7 +1298,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let sid = sessionID
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
             guard let self = self, self.busy, self.sessionID == sid else { return }
-            if self.pressAnswer(incoming) { self.connectionDeadline = Date().addingTimeInterval(8); logLine("Aramanın bağlanması bekleniyor") }
+            if self.pressAnswer(incoming) {
+                self.connectionDeadline = Date().addingTimeInterval(8); logLine("Aramanın bağlanması bekleniyor")
+                CallObserver.shared.urgent = true
+                self.sendCommand(["command": "prewarm"])  // GPT-Live session opens while the call connects
+            }
             else { self.abortPendingCall("Arama artık çalmıyor veya cevaplama düğmesine ulaşılamadı.") }
         }
     }
@@ -1519,6 +1526,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func abortPendingCall(_ message: String) {
         releaseCallRoute()
+        CallObserver.shared.urgent = false
+        sendCommand(["command": "cancel_prewarm"])
         busy = false; inSession = false; sessionID = nil; sessionSource = nil; connectionDeadline = nil; sessionWatchdog = nil
         reportCallFailure(message)
     }

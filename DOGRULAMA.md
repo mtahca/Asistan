@@ -1,5 +1,13 @@
 # Doğrulama
 
+## 0.8.7
+
+- **Notlar:** `deliver_notes` notları `session.instructions.append` ile gönderir; `session.instructions.appended` onayı not durumunu "model kabul etti" yapar. Yeni test: `test_note_goes_in_as_instruction_and_ack_updates_status`.
+- **Ön hazırlık:** Swift, cevap düğmesine basınca `prewarm` komutu gönderir; ajan arayan bilgisi olmayan bir GPT-Live oturumu açar (30 sn geçerli). `begin` geldiğinde `LiveCall` bu oturumu kullanır ve arayan bilgisini talimat olarak ekler. Bağlantı doğrulanamazsa `cancel_prewarm` oturumu kapatır. Yeni testler: `test_prewarmed_connection_skips_session_start_and_adds_caller`, `test_prewarm_connection_waits_for_started_and_closes_on_error`. Python testleri: 102.
+- Ön hazırlık her cevaplamada birkaç saniyelik boş GPT-Live oturumu kullanır ($0,05/dk ile yaklaşık $0,003).
+
+Elle kontrol: `app.log` içinde "Önceden açılmış GPT-Live oturumu kullanıldı" satırı ve "İlk konuşma sesi geldi" süresi öncekinden kısa olmalı. Görüşme sırasında bir not gönderin; canlı pencerede "model kabul etti" durumu görünmeli ve asistan notu uygulamalı.
+
 ## 0.8.6
 
 0.8.5'in kaydettiği `son_arama_tani.txt` gerçek FaceTime bildirimini gösterdi: `AXGenericElement description: ‪Mehmet Tahça‬, FaceTime Audio`. Ad U+202A/U+202C yön işaretleriyle sarılı, "FaceTime Audio" içindeki boşluk U+00A0 (bölünmez). Bölünmez boşluk tür eşleşmesini bozuyordu. `clean` artık bu boşlukları normal boşluğa çevirir; "facetime"/"iphone" içeren parçalar tür sayılır. Gerçek etiket birebir teste eklendi (`CallerIdentityTests` +3). Telefon (iPhone aktarmalı) ve WhatsApp aramalarında ad 0.8.5 ile doğrulanmıştı.

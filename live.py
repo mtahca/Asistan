@@ -263,9 +263,24 @@ Arka plan sonucu olmadan işlem yapıldığını, randevu veya dönüş sözü v
 '''
 
 
+def prewarm_connection(key, system, voice='marin', factory=LiveConnection, timeout=12):
+    """Open a Live session before the phone call is confirmed, with a caller-agnostic prompt.
+    Caller details and the greeting are appended once the call connects."""
+    connection=factory(key)
+    connection.send('session.start',session=session_config(prompt(system)+'\nArayan bilgisi ve karşılama bağlantı kurulunca ayrıca bildirilecek.', voice))
+    deadline=time.monotonic()+timeout
+    while time.monotonic()<deadline:
+        event=connection.recv()
+        if event is None: continue
+        if event.get('type')=='error': connection.close(); raise event_error(event)
+        if event.get('type')=='session.started': return connection
+    connection.close()
+    raise LiveError('GPT-Live hazırlanırken zaman aşımı.')
+
+
 class LiveCall:
-    def __init__(self, agent, session, system, greeting, factory=LiveConnection):
-        self.agent=agent; self.s=session; self.system=system; self.greeting=greeting
+    def __init__(self, agent, session, system, greeting, factory=LiveConnection, prewarmed=None):
+        self.agent=agent; self.s=session; self.system=system; self.greeting=greeting; self.prewarmed=prewarmed
         self.factory=factory; self.connection=None; self.player=PCMPlayer(agent.np)
         self.events=queue.Queue(maxsize=1024); self.audio=queue.Queue(maxsize=25)
         self.errors=queue.Queue(); self.results=queue.Queue()
@@ -275,7 +290,7 @@ class LiveCall:
         self.ending=False; self.end_requested=0.0; self.last_input=0.0
         self.ending_spoken=False; self.input_revision=0;self.ending_text=""
         self.last_caption=0.0; self.caption_dirty=False
-        self.greeting_id=None; self.greeting_sent_at=None; self.greeting_ack=False
+        self.greeting_id=None; self.greeting_sent_at=None; self.greeting_ack=False; self.note_acks={}
         self.first_output=False; self.greeting_warning=False
         self.output_text_seen=False; self.greeting_fallback=False; self.caller_audio_seen=False
 
@@ -336,6 +351,8 @@ class LiveCall:
         elif kind=='session.instructions.appended' and self.greeting_id is not None and event.get('client_event_id')==self.greeting_id:
             self.greeting_ack=True
             self.agent.emit('live_status',self.s.id,text='Karşılama talimatı kabul edildi (seslendirme doğrulaması değildir).')
+        elif kind=='session.instructions.appended' and event.get('client_event_id') in self.note_acks:
+            self.set_note_status(self.note_acks.pop(event.get('client_event_id')),'model kabul etti; duyulması doğrulanmadı')
         elif kind in ('session.input_transcript.delta','session.output_transcript.delta'):
             if self.transcript.add(event): self.caption_dirty=True
             if kind=='session.output_transcript.delta' and event.get('delta','').strip(): self.output_text_seen=True
@@ -375,15 +392,26 @@ class LiveCall:
             self.agent.emit('live_status',self.s.id,text='Karşılama sesi gecikti; talimat kabulü: '+('evet' if self.greeting_ack else 'bekleniyor'))
 
     def deliver_notes(self):
+        """Owner notes go in as instructions, the same channel the greeting uses and the model
+        acts on; commentary is advisory and was ignored. The last chunk's ack marks the note."""
         with self.s.lock: notes=[n.copy() for n in self.s.notes if n['status']=='bekliyor']
         for n in notes:
-            for chunk in context_chunks('Telefon sahibinin arayana iletmeni istediği not: '+n['text']):
-                self.connection.send('session.commentary.append',delegation_id=None,content=chunk)
-            with self.s.lock:
-                for existing in self.s.notes:
-                    if existing['id']==n['id']: existing['status']='modele iletildi; duyulması doğrulanmadı'
-            self.agent.emit('note_status',self.s.id,note_id=n['id'],text=n['text'],status='modele iletildi; duyulması doğrulanmadı')
-            self.agent._checkpoint(self.s)
+            chunks=context_chunks('TELEFON SAHİBİNDEN YENİ TALİMAT (şimdi uygula): '+n['text']+
+                ' — Bu talimatı hemen, uygun ilk cümlende Türkçe olarak arayana aktar veya uygula; "not aldım" deme, doğrudan uygula.')
+            event_id=None
+            for chunk in chunks:
+                event_id='beta_note_'+uuid.uuid4().hex
+                self.connection.send('session.instructions.append',event_id=event_id,delegation_id=None,content=chunk)
+            self.note_acks[event_id]=n['id']
+            self.set_note_status(n['id'],'talimat olarak iletildi; duyulması doğrulanmadı')
+
+    def set_note_status(self,note_id,status):
+        text=''
+        with self.s.lock:
+            for existing in self.s.notes:
+                if existing['id']==note_id: existing['status']=status; text=existing['text']
+        self.agent.emit('note_status',self.s.id,note_id=note_id,text=text,status=status)
+        self.agent._checkpoint(self.s)
 
     RECONNECT_LIMIT=2
 
@@ -397,6 +425,13 @@ class LiveCall:
             instructions+=('\n\nBAĞLANTI YENİLENDİ: Görüşme zaten sürüyor. Karşılamayı ve kendini tanıtmayı TEKRAR ETME. '
                            'Kaldığın yerden doğal biçimde devam et; gerekiyorsa kısa bir "Pardon, bağlantı kısa süre kesildi, devam edelim." de.\n'
                            'Şimdiye kadarki konuşma:\n'+(history or '(henüz konuşma yok)'))
+        if not resume and self.prewarmed is not None:
+            self.connection, self.prewarmed = self.prewarmed, None
+            # The prewarmed prompt had no caller; add what the ring showed.
+            for chunk in context_chunks(self.caller_context()):
+                self.connection.send('session.instructions.append',delegation_id=None,content=chunk)
+            self.agent.emit('live_status',self.s.id,text='Önceden açılmış GPT-Live oturumu kullanıldı.')
+            return True
         self.connection=self.factory(self.agent.live_key)
         self.connection.send('session.start',session=session_config(instructions, getattr(self.agent, 'live_voice', 'marin')))
         deadline=time.monotonic()+12
@@ -407,6 +442,11 @@ class LiveCall:
             if event.get('type')=='session.started':return True
         if self.s.stop.is_set():return False
         raise LiveError('GPT-Live hazırlanırken zaman aşımı.')
+
+    def caller_context(self):
+        info=self.agent.caller_summary(self.s.caller) if hasattr(self.agent,'caller_summary') else ''
+        return ('Arayan ekranından alınan bilgi (kimlik doğrulaması değildir): '+(info or 'yok')+
+                '. Adı biliniyorsa adını tekrar sorma; arayan kendini farklı tanıtırsa ona güven.')
 
     def start_reader(self):
         self.worker_stop=threading.Event()

@@ -24,7 +24,7 @@ from pathlib import Path
 import numpy as np
 from contextlib import contextmanager
 from llm import model_choices, require_keys, OpenAIResponses, OpenAIError
-from live import voice_mode, voice_name, require_live_key, LiveCall, check_access, LiveError
+from live import voice_mode, voice_name, require_live_key, LiveCall, check_access, LiveError, prewarm_connection
 
 try:
     import sounddevice as sd
@@ -634,11 +634,18 @@ class Agent:
         kind = cmd.get("command")
         if kind == "shutdown":
             self.shutdown.set()
+            self.drop_prewarm()
             self._stop_bridge()
             if self.session:
                 self.session.reason = "shutdown"
                 self.session.stop.set()
             self.voice.interrupt()
+            return
+        if kind == "prewarm":
+            self.start_prewarm()
+            return
+        if kind == "cancel_prewarm":
+            self.drop_prewarm()
             return
         if kind == "begin":
             try:
@@ -674,6 +681,42 @@ class Agent:
                     s.notes.append(note)
                 emit("note_status", s.id, note_id=note["id"], status="bekliyor", text=text)
                 # Checkpoints are written by the session thread, never by the real-time callback.
+
+    # GPT-Live sessions take 1-2 s to open; open one while the phone call is still connecting.
+    PREWARM_MAX_AGE_S = 30.0
+    caller_summary = staticmethod(caller_summary)
+
+    def start_prewarm(self) -> None:
+        if VOICE_MODE != "gpt-live" or self.session or getattr(self, "bridge", None): return
+        lock = self.__dict__.setdefault("prewarm_lock", threading.Lock())
+        with lock:
+            current = getattr(self, "prewarm", None)
+            if current and time.monotonic() - current[1] < self.PREWARM_MAX_AGE_S: return
+            self.prewarm = None
+        def run():
+            try:
+                connection = prewarm_connection(self.live_key, build_system_prompt({}, load_assistant_preferences()), self.live_voice)
+            except Exception as e:
+                log("GPT-Live ön hazırlık başarısız: " + str(e)); return
+            with lock:
+                if self.session or self.shutdown.is_set():
+                    connection.close(); return
+                self.prewarm = (connection, time.monotonic())
+            emit("live_status", None, text="GPT-Live oturumu önceden açıldı")
+        threading.Thread(target=run, daemon=True).start()
+
+    def take_prewarm(self):
+        lock = self.__dict__.setdefault("prewarm_lock", threading.Lock())
+        with lock:
+            current = getattr(self, "prewarm", None); self.prewarm = None
+        if not current: return None
+        if time.monotonic() - current[1] > self.PREWARM_MAX_AGE_S:
+            current[0].close(); return None
+        return current[0]
+
+    def drop_prewarm(self) -> None:
+        connection = self.take_prewarm()
+        if connection: connection.close()
 
     def _stop_bridge(self, session_id=None):
         with self.bridge_lock:
@@ -884,7 +927,7 @@ class Agent:
         self.session=s
         emit("session_started",s.id,caller=s.caller,voice_mode="gpt-live")
         self._checkpoint(s)
-        call=LiveCall(self,s,build_system_prompt(s.caller,s.preferences),build_greeting(s.caller,s.preferences))
+        call=LiveCall(self,s,build_system_prompt(s.caller,s.preferences),build_greeting(s.caller,s.preferences),prewarmed=self.take_prewarm())
         try: call.run()
         except Exception as e:
             if not s.stop.is_set():
