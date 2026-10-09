@@ -68,6 +68,7 @@ final class MobileBridge {
     var onNote: ((String) -> Void)?
     var onEnd: (() -> Void)?
     var onAnswer: (() -> Void)?
+    var onPause: ((Bool) -> Void)?
     var onChanged: (() -> Void)?
     private let defaults: UserDefaults
     private(set) var enabled: Bool
@@ -77,7 +78,8 @@ final class MobileBridge {
     private var listener: NWListener?
     private var clients: [MobileClient] = []
     private var transcript = MobileTranscript()
-    private var state: [String: Any] = ["t": "state", "inSession": false, "caller": "", "status": "", "ringing": false, "ringer": ""]
+    private var state: [String: Any] = ["t": "state", "inSession": false, "caller": "", "status": "", "ringing": false, "ringer": "", "source": "", "paused": false, "humanCall": false]
+    let appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
     private var context: String?
     private var paused = false
     private var stopping = false
@@ -138,7 +140,7 @@ final class MobileBridge {
     fileprivate func clientReady(_ client: MobileClient) {
         guard enabled, clients.contains(where: { $0 === client }) else { client.close(); return }
         client.context = context
-        client.send(["t": "hello", "v": LiveProtocol.version, "mac": macName])
+        client.send(["t": "hello", "v": LiveProtocol.version, "mac": macName, "app": appVersion])
         client.send(state); client.send(["t": "snapshot", "lines": transcript.lines]); onChanged?()
     }
     fileprivate func drop(_ client: MobileClient) {
@@ -152,6 +154,13 @@ final class MobileBridge {
             return
         }
         if command == .ping { client.send(["t": "pong"]); return }
+        // Pausing needs no call context: it is allowed with no call at all.
+        if case .pause(let on) = command {
+            guard client.allowCommand(), command.allowed(ringing: false, inSession: state["inSession"] as? Bool ?? false, paused: paused, stopping: stopping) else {
+                notice("Duraklatma görüşme sırasında değiştirilemez.", to: client); return
+            }
+            onPause?(on); return
+        }
         guard client.allowCommand(), client.context == context, context != nil,
               command.allowed(ringing: state["ringing"] as? Bool ?? false,
                               inSession: state["inSession"] as? Bool ?? false, paused: paused, stopping: stopping) else {
@@ -161,7 +170,7 @@ final class MobileBridge {
         case .answer: onAnswer?()
         case .end: onEnd?()
         case .note(let text): onNote?(text)
-        case .ping: break
+        case .ping, .pause: break
         }
     }
     private func notice(_ text: String, to client: MobileClient) {
@@ -170,9 +179,10 @@ final class MobileBridge {
     }
     private func broadcast(_ obj: [String: Any]) { for client in clients where client.ready { client.send(obj) } }
     func setState(inSession: Bool, caller: String, startedAt: Date?, status: String, ringing: Bool, ringer: String,
-                  context: String?, paused: Bool, stopping: Bool) {
+                  context: String?, paused: Bool, stopping: Bool, source: String = "", humanCall: Bool = false) {
         self.context = context; self.paused = paused; self.stopping = stopping
-        var next: [String: Any] = ["t": "state", "inSession": inSession, "caller": caller, "status": status, "ringing": ringing, "ringer": ringer]
+        var next: [String: Any] = ["t": "state", "inSession": inSession, "caller": caller, "status": status, "ringing": ringing, "ringer": ringer,
+                                   "source": source, "paused": paused, "humanCall": humanCall]
         if let start = startedAt { next["startedAt"] = start.timeIntervalSince1970 }
         guard !NSDictionary(dictionary: state).isEqual(to: next) || clients.contains(where: { $0.context != context }) else { return }
         state = next

@@ -21,6 +21,10 @@ import Foundation
         var malformed = MobileFrames()
         do { _ = try malformed.consume(Data("[]\n".utf8)); check(false) } catch { check(true) }
         check(MobileCommand.parse(["t": "shutdown"]) == nil)
+        check(MobileCommand.parse(["t": "pause", "on": true]) == .pause(true))
+        check(MobileCommand.parse(["t": "pause"]) == nil)
+        check(MobileCommand.pause(true).allowed(ringing: true, inSession: false, paused: false, stopping: false))
+        check(!MobileCommand.pause(false).allowed(ringing: false, inSession: true, paused: true, stopping: false))
         check(MobileCommand.parse(["t": "note", "text": "  "]) == nil)
         check(MobileCommand.parse(["t": "note", "text": String(repeating: "a", count: 1001)]) == nil)
         check(MobileCommand.parse(["t": "note", "text": String(repeating: "a", count: 1000)]) != nil)
