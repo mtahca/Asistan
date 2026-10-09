@@ -1,8 +1,8 @@
-# Beta 0.7.2 doğrulama
+# Beta 0.7.3 doğrulama
 
 ## Otomatik kontroller
 
-`test.sh` toplam **271 kontrol** çalıştırır: 94 Python testi ve 177 Swift kontrolü. Kapsam: ajan olayları, görüşme yaşam döngüsü, ses kapatma ve araya girme, özet işleri, OpenAI/Anthropic istemcileri, GPT-Live oturum/ses ayarları, model yapılandırması, arama politikası, arayan kimliği, kişiselleştirme, Mobile protokolü ve Odak durumunun ayrıştırılması.
+`test.sh` toplam **272 kontrol** çalıştırır: 95 Python testi ve 177 Swift kontrolü. Kapsam: ajan olayları, görüşme yaşam döngüsü, ses kapatma ve araya girme, özet işleri, OpenAI/Anthropic istemcileri, GPT-Live oturum/ses ayarları, model yapılandırması, arama politikası, arayan kimliği, kişiselleştirme, Mobile protokolü ve Odak durumunun ayrıştırılması.
 
 Testlerde ağ/ses sağlayıcılarının yerine kontrollü örnekler kullanılır. API hesabı erişimi, gerçek ses kalitesi veya macOS arama arayüzlerinin her sürümü bu testlerle doğrulanmış sayılmaz. `build.sh` Swift uygulamasını derler ve uygulama imzasını doğrular.
 
@@ -31,3 +31,10 @@ WhatsApp’ın güncel sesli arama başlığıyla ilgili düzeltme ve olumsuz vi
 
 
 0.7.2 gerçek WhatsApp sesli aramasında algılama, kabul ve karşılamanın arayan konuşmadan başlaması kullanıcı tarafından doğrulandı. Teknik günlük kaynak=WhatsApp, ses=gpt-live ve karşılama isteğinden yaklaşık 2,5 saniye sonra ilk konuşma sesini gösterdi; dökümde ilk konuşan Asistan oldu. Bu sonuç sesin karşı uçta duyulduğuna dair kullanıcı doğrulamasıyla birlikte değerlendirilmiştir.
+
+
+FaceTime 0.7.2 canlı denemesinde de arayan konuşmadan asistanın karşılaması kullanıcı tarafından doğrulandı. İlk ses karşılama isteğinden 4,95 saniye sonra geldi; dört saniyelik tek hatırlatma kullanıldı. Dökümün ilk konuşanı Asistan’dı.
+
+## 0.7.3 hız ayarı
+
+Tek hatırlatmanın sessiz beklemesi iki saniyeye indirildi. Süre eşiği, onay, tekrar engeli ve arayan/asistan konuşurken göndermeme dahil 38 GPT-Live testi geçti. İki yeni gerçek API oturumuna yalnızca sessizlik verildi; ikisinde de asistan önce konuştu, biri hatırlatmayı kullandı. Bunlar gerçek telefon gecikme ölçümü değildir; önceki canlı 0.7.2 sonucuyla yeni 0.7.3 ses süresi karıştırılmamalıdır. Uygulama derleme/imza kontrolü başarılı.

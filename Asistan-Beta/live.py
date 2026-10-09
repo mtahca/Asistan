@@ -345,7 +345,7 @@ class LiveCall:
         elapsed=time.monotonic()-self.greeting_sent_at
         # Accepted instructions may still leave Live waiting. One speakable cue,
         # only while both sides remain silent; never repeat or interrupt a caller.
-        if elapsed>4 and self.greeting_ack and not self.greeting_fallback and not self.first_output and not self.output_text_seen and self.input_revision==0 and not self.caller_audio_seen:
+        if elapsed>2 and self.greeting_ack and not self.greeting_fallback and not self.first_output and not self.output_text_seen and self.input_revision==0 and not self.caller_audio_seen:
             self.greeting_fallback=True
             for chunk in context_chunks(self.greeting):
                 self.connection.send('session.commentary.append',delegation_id=None,content=chunk)

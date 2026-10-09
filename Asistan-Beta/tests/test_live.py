@@ -90,6 +90,13 @@ class LiveTests(unittest.TestCase):
             c.ensure_greeting();c.ensure_greeting()
         self.assertEqual(c.connection.sent,[('session.commentary.append',{'delegation_id':None,'content':'Karşılama'})])
 
+    def test_greeting_nudge_waits_two_seconds_and_ack_then_runs_once(self):
+        c=self.call();c.connection=Connection();c.greeting_sent_at=0;c.greeting_ack=True
+        with patch.object(live.time,'monotonic',return_value=1.9):c.ensure_greeting()
+        self.assertEqual(c.connection.sent,[])
+        with patch.object(live.time,'monotonic',return_value=2.1):c.ensure_greeting();c.ensure_greeting()
+        self.assertEqual(len(c.connection.sent),1)
+
     def test_greeting_never_repeats_after_caller_or_assistant_or_stop(self):
         for state,value in [('input_revision',1),('first_output',True),('output_text_seen',True),('caller_audio_seen',True),('greeting_ack',False)]:
             c=self.call();c.connection=Connection();c.greeting_sent_at=0;c.greeting_ack=True;setattr(c,state,value)
