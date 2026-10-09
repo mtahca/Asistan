@@ -1,4 +1,4 @@
-# Asistan Beta 0.7.1
+# Asistan Beta 0.7.2
 
 Bağımsız macOS AI telefon asistanı. iPhone–Mac arama aktarımı ve WhatsApp masaüstündeki sesli aramaları karşılar, arayanla konuşur ve görüşme notu oluşturur. Bu klasör Beta'nın kaynaklarını içerir; reponun kökündeki Asistan uygulaması Alpha olarak ayrı kalır.
 
@@ -74,3 +74,10 @@ bash test.sh
 ```
 
 Testler kurulu Beta Python ortamını kullanır. Başka ortam için `ASISTAN_BETA_PYTHON` değişkenini Python çalıştırıcısının tam yoluna ayarlayın. [DOGRULAMA.md](DOGRULAMA.md) test kapsamını ve canlı doğrulama sınırlarını açıklar; [INCELEME.md](INCELEME.md) mimari kararları özetler. Paketlenmiş üçüncü taraf WebSocket kitaplığının lisansı `vendor/websocket_client-1.9.2.dist-info/licenses/LICENSE` içindedir.
+
+
+## 0.7.2 düzeltmeleri
+
+WhatsApp audio call ve WhatsApp voice call başlıkları, kişi adıyla başlayan pencere başlıkları ve iki WhatsApp uygulama kimliği desteklenir. Kabul/ret kontrolleri yine zorunludur; görüntülü aramalar ve geçmiş kayıtlar karşılanmaz. Tanı kaydı AXWindows sonucu/pencerelerini de içerir.
+
+GPT-Live karşılaması tam metinle, arayanı beklemeden konuşma talimatıyla istenir. Talimat kabulü ve ilk konuşma sesi günlüğe eklenir. Talimat kabul edilmiş ancak dört saniye boyunca iki taraf da sessiz kalmışsa tek bir seslendirme hatırlatması yapılır. Arayanın konuşması, asistanın metin/ses üretmesi veya görüşmenin durması tekrarı engeller. Yerel ses modu ve Loopback hattı değişmez.

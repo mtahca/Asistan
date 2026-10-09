@@ -76,6 +76,50 @@ class LiveTests(unittest.TestCase):
         self.assertEqual([k for k,_ in c.sent],['session.start','session.close']);self.assertTrue(c.closed)
         self.assertNotIn('Karşılama',str(c.sent))
 
+    def test_greeting_ack_matches_only_current_instruction(self):
+        c=self.call();c.greeting_id='current'
+        c.handle_event({'type':'session.instructions.appended','client_event_id':'old'})
+        self.assertFalse(c.greeting_ack)
+        c.handle_event({'type':'session.instructions.appended','client_event_id':'current'})
+        self.assertTrue(c.greeting_ack)
+        self.assertFalse(c.first_output)
+
+    def test_silent_start_gets_one_speakable_greeting_after_ack(self):
+        c=self.call();c.connection=Connection();c.greeting_sent_at=0;c.greeting_ack=True
+        with patch.object(live.time,'monotonic',return_value=5):
+            c.ensure_greeting();c.ensure_greeting()
+        self.assertEqual(c.connection.sent,[('session.commentary.append',{'delegation_id':None,'content':'Karşılama'})])
+
+    def test_greeting_never_repeats_after_caller_or_assistant_or_stop(self):
+        for state,value in [('input_revision',1),('first_output',True),('output_text_seen',True),('caller_audio_seen',True),('greeting_ack',False)]:
+            c=self.call();c.connection=Connection();c.greeting_sent_at=0;c.greeting_ack=True;setattr(c,state,value)
+            with patch.object(live.time,'monotonic',return_value=5):c.ensure_greeting()
+            self.assertEqual(c.connection.sent,[],state)
+        c=self.call();c.connection=Connection();c.greeting_sent_at=0;c.greeting_ack=True;c.s.stop.set()
+        with patch.object(live.time,'monotonic',return_value=5):c.ensure_greeting()
+        self.assertEqual(c.connection.sent,[])
+
+    def test_silent_audio_is_not_reported_as_first_speech(self):
+        c=self.call();c.greeting_sent_at=0
+        c.handle_event({'type':'session.output_audio.delta','delta':base64.b64encode(bytes(10)).decode()})
+        self.assertFalse(c.first_output)
+        with patch.object(live.time,'monotonic',return_value=2):
+            c.handle_event({'type':'session.output_audio.delta','delta':base64.b64encode(np.array([0,100,-100],dtype='<i2').tobytes()).decode()})
+        self.assertTrue(c.first_output);self.assertEqual(self.emitted[-1][0][0],'live_status')
+
+    def test_transport_returns_event_id_for_ack_matching(self):
+        class WS:
+            def getstatus(self):return 101
+            def settimeout(self,n):pass
+            def send(self,payload):self.payload=payload
+            def shutdown(self):pass
+        import json
+        ws=WS();c=live.LiveConnection('dummy',factory=lambda *a,**k:ws)
+        eid=c.send('session.instructions.append',delegation_id=None,content='hello')
+        self.assertEqual(json.loads(ws.payload)['event_id'],eid)
+        self.assertEqual(c.send('session.instructions.append',event_id='fixed',delegation_id=None,content='hello'),'fixed')
+        c.close()
+
     def test_access_error_is_sanitized_and_releases_transport(self):
         c=Connection()
         def send(kind,**fields):c.events.put({'type':'error','error':{'message':'secret-key','code':'other'}})
@@ -257,5 +301,11 @@ class LiveCallIntegrationTests(unittest.TestCase):
         self.assertTrue(c.closed);self.assertTrue(call.finalized)
         self.assertIn('Arayan: Deneme.',call.s.transcript)
         self.assertEqual(c.sent[0][0],'session.start')
+        greeting_commands=[fields for kind,fields in c.sent if kind=='session.instructions.append']
+        self.assertEqual(len(greeting_commands),1)
+        self.assertIn('Karşılama',greeting_commands[0]['content'])
+        self.assertIn('do not wait for the caller',greeting_commands[0]['content'])
+        self.assertEqual(greeting_commands[0]['event_id'],call.greeting_id)
+        self.assertTrue(any(base64.b64decode(x)==bytes(720*2) for x in audio))
 
 if __name__=='__main__':unittest.main()

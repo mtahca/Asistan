@@ -190,7 +190,14 @@ func dumpTree(bundleIDs: [String], to url: URL) {
         var value: CFTypeRef?
         let readError = AXUIElementCopyAttributeValue(root, kAXChildrenAttribute as CFString, &value)
         out += "Arayüz okuma sonucu: \(readError.rawValue)\n"
-        walk(root) { el, depth in
+        var windowValue: CFTypeRef?
+        let windowError = AXUIElementCopyAttributeValue(root, kAXWindowsAttribute as CFString, &windowValue)
+        let windows = (windowValue as? [AXUIElement]) ?? []
+        out += "Pencere okuma sonucu: \(windowError.rawValue); pencere sayısı: \(windows.count)\n"
+        // Some apps expose AXWindows without placing them under AXChildren.
+        // Inspect the same roots used by the call observer, not only app children.
+        for treeRoot in windows.isEmpty ? [root] : windows {
+        walk(treeRoot) { el, depth in
             let role = str(el, kAXRoleAttribute as String)
             let sub = str(el, kAXSubroleAttribute as String)
             let acts = actionNames(el).joined(separator: ",")
@@ -201,6 +208,7 @@ func dumpTree(bundleIDs: [String], to url: URL) {
             if !acts.isEmpty { line += " [\(acts)]" }
             if let f = frameOf(el) { line += " \(Int(f.minX)),\(Int(f.minY)) \(Int(f.width))x\(Int(f.height))" }
             out += line + "\n"
+        }
         }
     }
     do {
@@ -1014,7 +1022,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self = self else { return }
             let u = self.projectDir.appendingPathComponent("tani.txt")
             logLine("Tanı: ses kullanan süreçler: \(audioProcessReport())")
-            dumpTree(bundleIDs: ["com.apple.notificationcenterui", "com.apple.FaceTime", "com.apple.mobilephone", "net.whatsapp.WhatsApp"], to: u)
+            dumpTree(bundleIDs: ["com.apple.notificationcenterui"] + CallSource.apple.bundleIDs + CallSource.whatsapp.bundleIDs, to: u)
             logLine("Tanı yazıldı: \(u.path)")
         }
     }
@@ -1255,7 +1263,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             sessionID = nil; sessionSource = nil; stoppingDeadline = nil; sessionWatchdog = nil
             appendLiveNote("— Devralınan görüşmenin ses hattı kapandı —")
         case "session_started":
-            logLine("Asistan görüşmesi başladı")
+            logLine("Asistan görüşmesi başladı; kaynak=\(sessionSource?.rawValue ?? "Bilinmiyor"), ses=\(event["voice_mode"] as? String ?? "local")")
             inSession = true; agentReady = false
             stoppingDeadline = nil; sessionWatchdog = Date().addingTimeInterval(310)
             sessionStarted = Date(); sessionFinished = nil; liveSource = sessionSource
@@ -1269,6 +1277,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 liveCallerHeading = "Arayan: " + sessionCaller
                 appendLiveNote(liveCallerHeading)
             }
+        case "live_status": logLine("GPT-Live: " + text)
         case "live_transcript":
             if let rows = event["rows"] as? [[String: Any]] {
                 liveRows = rows

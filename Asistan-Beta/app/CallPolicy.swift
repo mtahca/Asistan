@@ -4,7 +4,7 @@ enum CallSource: String {
     case apple = "FaceTime / Telefon"
     case whatsapp = "WhatsApp"
     var bundleIDs: [String] {
-        self == .whatsapp ? ["net.whatsapp.WhatsApp"] : ["com.apple.FaceTime", "com.apple.mobilephone"]
+        self == .whatsapp ? ["net.whatsapp.WhatsApp", "desktop.WhatsApp"] : ["com.apple.FaceTime", "com.apple.mobilephone"]
     }
 }
 
@@ -33,13 +33,19 @@ enum CallUI {
             ["incoming video call", "facetime video", "görüntülü arama", "video call incoming", "whatsapp video call"].contains(where: t.contains)
         }
     }
+    static func whatsappVoiceTitle(_ text: String) -> Bool {
+        let t = normalized(text)
+        return ["whatsapp audio call", "whatsapp voice call"].contains { title in
+            t == title || t.hasSuffix(" - " + title)
+        }
+    }
     static func voiceIncoming(_ texts: [String]) -> Bool {
         let values = texts.map(normalized)
         if videoCall(texts) { return false }
         // Observed WhatsApp macOS UI: an audio header and a pair of call-specific
         // accept/decline IDs. It has no separate "incoming" label.
-        if values.contains("callui_acceptbutton") && values.contains("callui_declinebutton") &&
-           values.contains("whatsapp audio call") { return true }
+        if values.contains(where: answer) && values.contains(where: decline) &&
+           values.contains(where: whatsappVoiceTitle) { return true }
         return values.contains { t in
             ["incoming call", "incoming voice call", "incoming audio call", "gelen arama", "gelen sesli arama"].contains { t.contains($0) }
                 && !t.hasPrefix("start ") && !t.hasPrefix("başlat")

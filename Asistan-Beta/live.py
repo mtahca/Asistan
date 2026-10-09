@@ -89,9 +89,11 @@ class LiveConnection:
             else: message = 'GPT-Live bağlantısı kurulamadı. İnternet ve hesap erişimini kontrol edin.'
             raise LiveError(message) from None
 
-    def send(self, kind, **fields):
+    def send(self, kind, *, event_id=None, **fields):
+        event_id = event_id or 'beta_' + uuid.uuid4().hex
         try:
-            self.ws.send(json.dumps(dict(type=kind, event_id='beta_' + uuid.uuid4().hex, **fields), ensure_ascii=False))
+            self.ws.send(json.dumps(dict(type=kind, event_id=event_id, **fields), ensure_ascii=False))
+            return event_id
         except Exception:
             raise LiveError('GPT-Live bağlantısına veri gönderilemedi.') from None
 
@@ -255,6 +257,9 @@ class LiveCall:
         self.ending=False; self.end_requested=0.0; self.last_input=0.0
         self.ending_spoken=False; self.input_revision=0;self.ending_text=""
         self.last_caption=0.0; self.caption_dirty=False
+        self.greeting_id=None; self.greeting_sent_at=None; self.greeting_ack=False
+        self.first_output=False; self.greeting_warning=False
+        self.output_text_seen=False; self.greeting_fallback=False; self.caller_audio_seen=False
 
     def capture(self,indata,frames,time_info,status):
         if self.s.stop.is_set() or self.worker_stop.is_set(): return
@@ -300,9 +305,20 @@ class LiveCall:
     def handle_event(self,event):
         kind=event.get('type')
         if kind=='error': raise event_error(event)
-        if kind=='session.output_audio.delta': self.player.push(event.get('delta',''))
+        if kind=='session.output_audio.delta':
+            self.player.push(event.get('delta',''))
+            # Continuous Live audio also contains silence; count actual speech only.
+            raw=base64.b64decode(event.get('delta',''),validate=True)
+            if not self.first_output and raw and self.agent.np.abs(self.agent.np.frombuffer(raw,dtype='<i2').astype('int32')).max()>50:
+                self.first_output=True
+                elapsed=time.monotonic()-self.greeting_sent_at if self.greeting_sent_at is not None else 0
+                self.agent.emit('live_status',self.s.id,text=f'İlk konuşma sesi geldi: {elapsed:.2f} sn')
+        elif kind=='session.instructions.appended' and self.greeting_id is not None and event.get('client_event_id')==self.greeting_id:
+            self.greeting_ack=True
+            self.agent.emit('live_status',self.s.id,text='Karşılama talimatı kabul edildi (seslendirme doğrulaması değildir).')
         elif kind in ('session.input_transcript.delta','session.output_transcript.delta'):
             if self.transcript.add(event): self.caption_dirty=True
+            if kind=='session.output_transcript.delta' and event.get('delta','').strip(): self.output_text_seen=True
             if kind=='session.input_transcript.delta':
                 self.last_input=time.monotonic(); self.ending=False;self.input_revision+=1
             elif self.ending:
@@ -323,6 +339,20 @@ class LiveCall:
                 if not self.s.stop.is_set():
                     self.s.reason='error';self.s.stop.set()
                     self.agent.emit('error',self.s.id,text='GPT-Live oturumu sona erdi. Aramayı devralabilirsiniz.')
+
+    def ensure_greeting(self):
+        if self.s.stop.is_set() or self.greeting_sent_at is None: return
+        elapsed=time.monotonic()-self.greeting_sent_at
+        # Accepted instructions may still leave Live waiting. One speakable cue,
+        # only while both sides remain silent; never repeat or interrupt a caller.
+        if elapsed>4 and self.greeting_ack and not self.greeting_fallback and not self.first_output and not self.output_text_seen and self.input_revision==0 and not self.caller_audio_seen:
+            self.greeting_fallback=True
+            for chunk in context_chunks(self.greeting):
+                self.connection.send('session.commentary.append',delegation_id=None,content=chunk)
+            self.agent.emit('live_status',self.s.id,text='Sessiz başlangıçta karşılama için tek seslendirme hatırlatması gönderildi.')
+        if elapsed>8 and not self.greeting_warning and not self.first_output:
+            self.greeting_warning=True
+            self.agent.emit('live_status',self.s.id,text='Karşılama sesi gecikti; talimat kabulü: '+('evet' if self.greeting_ack else 'bekleniyor'))
 
     def deliver_notes(self):
         with self.s.lock: notes=[n.copy() for n in self.s.notes if n['status']=='bekliyor']
@@ -358,8 +388,14 @@ class LiveCall:
         self.streams.append(out)
         inp.start();out.start()
         reader=threading.Thread(target=self.receive,daemon=True);self.reader=reader;reader.start()
-        self.connection.send('session.instructions.append',delegation_id=None,
-            content='Şimdi Türkçe konuşmaya başla. Talimatlardaki ilk karşılamayı kullan, yapay zeka asistanı olduğunu belirt. Sonra sus ve arayanı dinle.')
+        self.greeting_id='beta_greeting_'+uuid.uuid4().hex
+        self.greeting_sent_at=time.monotonic()
+        # A self-contained instruction avoids relying on an indirect startup reference.
+        # Send once after session.started and keep input (including silence) running.
+        self.connection.send('session.instructions.append',event_id=self.greeting_id,delegation_id=None,
+            content='The call is connected. Speak FIRST, immediately, in Turkish; do not wait for the caller to speak. '
+                    'Say this greeting now: '+self.greeting+' Then stop speaking and listen. Do not repeat the greeting.')
+        self.agent.emit('live_status',self.s.id,text='Karşılama istendi; arayanın konuşması beklenmiyor.')
         started=time.monotonic();voiced=0;muted_until=0.0;interrupted=False
         while not self.agent._expired(self.s,started):
             if not self.errors.empty():raise LiveError(self.errors.get())
@@ -370,6 +406,7 @@ class LiveCall:
                 rms=float(np.sqrt(np.mean(frame*frame)))
                 voiced=voiced+1 if rms>self.agent.live_threshold else 0
                 if voiced>=10:
+                    self.caller_audio_seen=True
                     self.ending=False;muted_until=time.monotonic()+0.3
                     if self.player.busy() and not interrupted:self.agent.emit('interrupted',self.s.id);interrupted=True
                     self.player.clear(mute=True)
@@ -383,6 +420,7 @@ class LiveCall:
                 except queue.Empty:break
                 self.handle_event(event)
             if self.s.stop.is_set():break
+            self.ensure_greeting()
             if self.caption_dirty and time.monotonic()-self.last_caption>0.35:self.captions()
             self.deliver_notes();self.start_backend()
             while not self.results.empty():

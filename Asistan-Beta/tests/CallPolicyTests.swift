@@ -18,7 +18,7 @@ import Foundation
         precondition(!CallUI.voiceIncoming(["Incoming video call", "Accept", "Decline"]))
         precondition(!CallUI.voiceIncoming(["Start voice call with Ayşe", "Accept invitation"]))
         precondition(!CallUI.voiceIncoming(["Voice call, answered yesterday", "Accept", "Decline"]))
-        precondition(CallSource.whatsapp.bundleIDs == ["net.whatsapp.WhatsApp"])
+        precondition(CallSource.whatsapp.bundleIDs == ["net.whatsapp.WhatsApp", "desktop.WhatsApp"])
         precondition(BetaAudio.listenName != BetaAudio.microphoneName)
         precondition(BetaAudio.playbackName != BetaAudio.microphoneName)
         let whatsappIncoming = ["‎WhatsApp audio call", "hang up", "CallUI_DeclineButton", "‎Accept call", "CallUI_AcceptButton"]
@@ -37,6 +37,19 @@ import Foundation
         precondition(CallUI.connectedEndControl(whatsappConnected, rootHasAnswer: false, rootHasDecline: false))
         precondition(!CallUI.voiceIncoming(whatsappConnected))
         precondition(!CallUI.connectedEndControl(["Leave call history"], rootHasAnswer: false, rootHasDecline: false))
-        print("Arama ayırma: 32 kontrol başarılı.")
+        // Current WhatsApp voice header and caller-prefixed window title.
+        precondition(CallUI.voiceIncoming(["WhatsApp voice call", "Accept", "Decline"]))
+        precondition(CallUI.voiceIncoming(["Deniz - WhatsApp voice call", "CallUI_AcceptButton", "CallUI_DeclineButton"]))
+        precondition(CallUI.voiceIncoming(["Deniz - WhatsApp audio call", "Accept call", "Decline call"]))
+        precondition(CallUI.voiceIncoming(["‎WhatsApp voice call", "‎Accept", "‎Decline"]))
+        precondition(!CallUI.voiceIncoming(["WhatsApp voice call", "Accept"]))
+        precondition(!CallUI.voiceIncoming(["WhatsApp voice call", "Decline"]))
+        precondition(!CallUI.voiceIncoming(["WhatsApp voice call", "Leave call"]))
+        precondition(!CallUI.voiceIncoming(["WhatsApp voice call yesterday", "Accept", "Decline"]))
+        precondition(!CallUI.voiceIncoming(["Start WhatsApp voice call", "Accept", "Decline"]))
+        precondition(!CallUI.voiceIncoming(["Deniz - WhatsApp video call", "Accept", "Decline"]))
+        precondition(!CallUI.voiceIncoming(["WhatsApp voice call", "WhatsApp video call", "Accept", "Decline"]))
+        precondition(!CallUI.voiceIncoming(["WhatsApp voice call", "Accept invitation", "Decline"]))
+        print("Arama ayırma: 44 kontrol başarılı.")
     }
 }
