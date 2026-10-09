@@ -1,10 +1,12 @@
 # Diğer Mac'te Asistan 0.8 kurulumu
 
-Bu depoda hazır uygulama veya kurulum ZIP'i yoktur. Önce README.md'deki adımlarla `bash build.sh` çalıştırın. Oluşan **Asistan.app** dosyasını diğer Mac'e aktarabilir ya da o Mac'te kaynaktan derleyebilirsiniz. Paket olarak taşımak isterseniz:
+Bu depoda hazır uygulama veya kurulum ZIP'i yoktur. Derlediğiniz Mac'te:
 
 ```sh
-ditto -c -k --keepParent Asistan.app "Asistan 0.8 Kurulum.zip"
+bash paketle.sh      # derler ve "Asistan <sürüm> Kurulum.zip" üretir
 ```
+
+ZIP yalnızca uygulamayı içerir. API anahtarları, notlar, kişiselleştirme, Python ortamı ve modeller diğer Mac'te sıfırdan hazırlanır; uygulama bunları kendi kurar.
 
 ## Normal uygulama olarak kurulum
 
@@ -19,6 +21,8 @@ ditto -c -k --keepParent Asistan.app "Asistan 0.8 Kurulum.zip"
 
 Xcode, Homebrew veya elle kurulmuş Python gerekmez; uygulama kendi konuşma ortamını hazırlar. Kullanıcı verileri o Mac'te `~/Documents/Asistan Data` klasöründe oluşturulur. Başka bir Mac'in Python ortamını kopyalamayın.
 
+Taşımak istediğiniz ayarlar varsa yalnızca şu dosyaları kopyalayın: `~/Documents/Asistan Data/.env` (API anahtarları ve model seçimi) ve `asistan_tercihleri.json` (kişiselleştirme). Kopyaladıktan sonra `.env` için `chmod 600` uygulayın. `.venv`, `notlar/`, `summary_jobs/` ve günlükleri kopyalamayın. Mobil eşleştirme kodu Mac'e özeldir; diğer Mac kendi kodunu üretir.
+
 ## Bilgisayar gereklilikleri
 
 - **Apple Silicon** (M1 ve sonrası) gerekir; Intel Mac desteklenmez. Alt sınır macOS 14.2'dir. Güncel Loopback 2.5.0 için üreticinin belirttiği aralık macOS **14.5–27** olduğundan yeni kurulumda macOS 14.5 veya üstünü kullanın. [Loopback'in resmi sayfası](https://rogueamoeba.com/loopback/).
@@ -28,7 +32,15 @@ Xcode, Homebrew veya elle kurulmuş Python gerekmez; uygulama kendi konuşma ort
 
 ## İlk açılışta macOS uyarısı
 
-Bu kişisel dağıtım Apple tarafından notarize edilmemiştir; başka bir Mac'te geliştirici doğrulama uyarısı çıkabilir. İlk açılış denemesinden sonra **Sistem Ayarları → Gizlilik ve Güvenlik → Yine de Aç** yoluyla uygulamaya izin verebilirsiniz. Genel güvenlik korumalarını kapatmayın. [Apple'ın açıklaması](https://support.apple.com/en-gb/102445).
+Bu kişisel dağıtım Apple tarafından notarize edilmemiştir; başka bir Mac'te "geliştirici doğrulanamadı" ya da "hasarlı" uyarısı çıkabilir. Uyarı, uygulamadan değil, macOS'un indirilen/AirDrop ile gelen dosyalara koyduğu karantina işaretinden kaynaklanır. İki çözüm:
+
+- İlk açılış denemesinden sonra **Sistem Ayarları → Gizlilik ve Güvenlik → Yine de Aç**. [Apple'ın açıklaması](https://support.apple.com/en-gb/102445).
+- Ya da uygulamayı Uygulamalar'a taşıdıktan sonra Terminal'de karantina işaretini kaldırın:
+  ```sh
+  xattr -dr com.apple.quarantine /Applications/Asistan.app
+  ```
+
+Genel güvenlik korumalarını kapatmayın. Uygulama sabit bir yerel imzayla imzalanmışsa (`make_cert.sh`), o sertifika diğer Mac'te yoktur; bu sorun değildir, yalnızca o Mac'te yeniden derlerseniz izinler sıfırlanır.
 
 ## Loopback düzeni
 

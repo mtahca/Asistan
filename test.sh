@@ -25,4 +25,4 @@ swiftc -module-cache-path "$TEST_BUILD/cache" app/Migration.swift app/RecentNote
 "$TEST_BUILD/migration-notes-tests"
 swiftc -module-cache-path "$TEST_BUILD/cache" app/MenuRoute.swift tests/MenuRouteTests.swift -o "$TEST_BUILD/menu-route-tests"
 "$TEST_BUILD/menu-route-tests"
-for script in build.sh setup.sh test.sh make_cert.sh; do bash -n "$script"; done
+for script in build.sh setup.sh test.sh make_cert.sh paketle.sh; do bash -n "$script"; done
