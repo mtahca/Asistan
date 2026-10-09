@@ -13,7 +13,7 @@ final class PersonalizationController: NSObject {
     init(app: AppDelegate) { self.app = app; super.init(); build() }
     func build() {
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 580, height: 455), styleMask: [.titled, .closable], backing: .buffered, defer: false)
-        window.title = "Asistan Beta — Kişiselleştirme"; window.isReleasedWhenClosed = false
+        window.title = "Asistan — Kişiselleştirme"; window.isReleasedWhenClosed = false
         let content = window.contentView!
         let tabs = NSTabView(frame: NSRect(x: 20, y: 105, width: 540, height: 330))
         for (key, title, hint) in [

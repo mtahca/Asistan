@@ -10,6 +10,7 @@ final class MobileSettingsController: NSObject, NSWindowDelegate {
     var codeLabel: NSTextField!
     var rotateButton: NSButton!
     var timer: Timer?
+    var addresses: [String] = []
     init(app: AppDelegate) { self.app = app; super.init(); build() }
     func label(_ text: String, _ y: CGFloat, height: CGFloat = 48, bold: Bool = false) -> NSTextField {
         let f = NSTextField(wrappingLabelWithString: text)
@@ -19,13 +20,13 @@ final class MobileSettingsController: NSObject, NSWindowDelegate {
     }
     func build() {
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 590), styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
-        window.title = "Asistan Beta — iPhone ve Odak"; window.isReleasedWhenClosed = false; window.delegate = self
+        window.title = "Asistan — iPhone ve Odak"; window.isReleasedWhenClosed = false; window.delegate = self
         mobileToggle = NSButton(checkboxWithTitle: "Asistan Mobile bağlantısını aç", target: self, action: #selector(toggleMobile))
         mobileToggle.frame = NSRect(x: 24, y: 543, width: 550, height: 28); window.contentView!.addSubview(mobileToggle)
         mobileStatus = label("", 509, height: 30)
         codeLabel = label("", 465, height: 40, bold: true)
-        _ = label("Aynı Wi-Fi'deki telefonda Asistan Mobile → Ayarlar → Mac listesinden adı ‘Asistan Beta’ ile biten bilgisayarı seçin. Yukarıdaki kodu telefondaki eşleştirme alanına girin.", 378, height: 82)
-        _ = label("Elle yazılmış Mac adresi varsa temizleyip listeden seçin. Beta ayrı bir port kullanır; mevcut mobil uygulamanın elle IP bağlantısı Alpha'ya gider. Bağlantı kodla şifrelenir; kodu bilen cihaz cevaplama, not ve sonlandırma komutlarını kullanabilir.", 291, height: 80)
+        _ = label("Aynı Wi-Fi'deki telefonda Asistan Mobile → Ayarlar → Mac listesinden adı ‘— Asistan’ ile biten bilgisayarı seçin ya da Mac adresi alanına bu Mac’in yerel IP adresini yazın. Yukarıdaki kodu telefondaki eşleştirme alanına girin.", 378, height: 82)
+        _ = label("Asistan Mobile’ın varsayılan 47821 portu kullanılır; Bonjour listesi de elle adres de çalışır. Eski Beta’yı seçtiyseniz listeden yeniden seçin; kod aynıdır. Bağlantı kodla şifrelenir; kodu bilen cihaz cevaplama, not ve sonlandırma komutlarını kullanabilir.", 291, height: 80)
         rotateButton = NSButton(title: "Eşleştirme kodunu yenile", target: self, action: #selector(rotateCode)); rotateButton.bezelStyle = .rounded
         rotateButton.frame = NSRect(x: 24, y: 249, width: 245, height: 32); window.contentView!.addSubview(rotateButton)
         focusToggle = NSButton(checkboxWithTitle: "Odak açıkken gelen aramaları otomatik cevapla", target: self, action: #selector(toggleFocus))
@@ -36,6 +37,7 @@ final class MobileSettingsController: NSObject, NSWindowDelegate {
         permission.frame = NSRect(x: 24, y: 20, width: 360, height: 32); window.contentView!.addSubview(permission)
     }
     func show() {
+        addresses = LiveProtocol.localAddresses()
         refresh(); window.center(); window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
         timer?.invalidate(); timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in self?.refresh() }
     }
@@ -43,11 +45,11 @@ final class MobileSettingsController: NSObject, NSWindowDelegate {
         app.focusMonitor.refresh(enabled: app.focusAuto)
         mobileToggle.state = app.mobile.enabled ? .on : .off
         mobileStatus.stringValue = app.mobile.status
-        codeLabel.stringValue = app.mobile.enabled ? "Eşleştirme kodu: \(app.mobile.displayCode)" : "Mobil bağlantı kapalı; açınca eşleştirme kodu gösterilir."
+        codeLabel.stringValue = app.mobile.enabled ? "Eşleştirme kodu: \(app.mobile.displayCode)" + (addresses.isEmpty ? "" : "\nMac adresi: " + addresses.joined(separator: ", ")) : "Mobil bağlantı kapalı; açınca eşleştirme kodu gösterilir."
         rotateButton.isEnabled = app.mobile.enabled
         focusToggle.state = app.focusAuto ? .on : .off
         focusStatus.stringValue = app.focusAuto ? app.focusMonitor.status : "Odak sırasında otomatik cevaplama kapalı."
-        if app.focusAuto && app.focusMonitor.active == nil { focusStatus.stringValue += "\nBeta'ya Tam Disk Erişimi verip yeniden açın." }
+        if app.focusAuto && app.focusMonitor.active == nil { focusStatus.stringValue += "\nAsistan’a Tam Disk Erişimi verip yeniden açın." }
     }
     @objc func toggleMobile() { app.mobile.setEnabled(mobileToggle.state == .on); refresh() }
     @objc func toggleFocus() { app.setFocusAuto(focusToggle.state == .on); refresh() }

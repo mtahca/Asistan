@@ -1,9 +1,13 @@
 #!/bin/bash
 set -euo pipefail
 cd "$(dirname "$0")"
-BETA_PYTHON="${ASISTAN_BETA_PYTHON:-$HOME/Documents/Codex/Asistan Beta Data/.venv/bin/python}"
-"$BETA_PYTHON" -B -m unittest discover -s tests -v
-TEST_BUILD="${TMPDIR:-/tmp}/asistan-beta-test-build"
+PYTHON="${ASISTAN_PYTHON:-${ASISTAN_BETA_PYTHON:-}}"
+if [ -z "$PYTHON" ]; then
+  PYTHON="$HOME/Documents/Asistan Data/.venv/bin/python"
+  [ -x "$PYTHON" ] || PYTHON="$HOME/Documents/Codex/Asistan Beta Data/.venv/bin/python"
+fi
+"$PYTHON" -B -m unittest discover -s tests -v
+TEST_BUILD="${TMPDIR:-/tmp}/asistan-test-build"
 mkdir -p "$TEST_BUILD/cache"
 swiftc -module-cache-path "$TEST_BUILD/cache" app/Protocol.swift tests/ProtocolTests.swift -o "$TEST_BUILD/protocol-tests"
 "$TEST_BUILD/protocol-tests"
@@ -17,4 +21,6 @@ swiftc -module-cache-path "$TEST_BUILD/cache" app/AssistantPreferences.swift tes
 "$TEST_BUILD/preferences-tests"
 swiftc -module-cache-path "$TEST_BUILD/cache" app/MobileProtocol.swift app/FocusMonitor.swift tests/MobileFocusTests.swift -o "$TEST_BUILD/mobile-focus-tests"
 "$TEST_BUILD/mobile-focus-tests"
-for script in build.sh setup.sh test.sh; do bash -n "$script"; done
+swiftc -module-cache-path "$TEST_BUILD/cache" app/Migration.swift app/RecentNotes.swift tests/MigrationNotesTests.swift -o "$TEST_BUILD/migration-notes-tests"
+"$TEST_BUILD/migration-notes-tests"
+for script in build.sh setup.sh test.sh make_cert.sh; do bash -n "$script"; done

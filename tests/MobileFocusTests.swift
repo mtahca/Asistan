@@ -4,11 +4,12 @@ import Foundation
     static func check(_ value: Bool) { count += 1; precondition(value) }
     static func main() throws {
         check(LiveProtocol.serviceType == "_asistan-canli._tcp")
-        check(LiveProtocol.port != 47821)
+        check(LiveProtocol.port == 47821)
         check(LiveProtocol.version == 1)
+        check(LiveProtocol.localAddresses().allSatisfy { !$0.hasPrefix("127.") && !$0.hasPrefix("169.254.") && $0.split(separator: ".").count == 4 })
         check(LiveProtocol.serviceName(host: String(repeating: "🦊", count: 80)).utf8.count <= 63)
-        check(LiveProtocol.serviceName(host: "Mehmet").hasSuffix(" — Asistan Beta"))
-        check(LiveProtocol.serviceName(host: "") == "Mac — Asistan Beta")
+        check(LiveProtocol.serviceName(host: "Mehmet").hasSuffix(" — Asistan"))
+        check(LiveProtocol.serviceName(host: "") == "Mac — Asistan")
         var decoder = MobileFrames(); var objects: [[String: Any]] = []
         let packet = LiveProtocol.encode(["t": "note", "text": "Merhaba 🌍\nBir dakika"] )!
         for byte in packet { objects += try decoder.consume(Data([byte])) }

@@ -41,7 +41,7 @@ final class ModelSettingsController: NSObject {
     }
     func build() {
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 715), styleMask: [.titled, .closable], backing: .buffered, defer: false)
-        window.title = "Asistan Beta — Modeller ve API anahtarları"; window.isReleasedWhenClosed = false
+        window.title = "Asistan — Modeller ve API anahtarları"; window.isReleasedWhenClosed = false
         _ = label("Görüşme ve özet için model seçin", y: 664, bold: true, height: 26)
         fieldLabel("Ses modu", y: 618)
         mode = popup(y: 618, items: [("Yerel ses — mevcut sistem", "local"), ("Çevrimiçi ses — GPT-Live 1", "gpt-live")])

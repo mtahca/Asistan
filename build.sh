@@ -1,27 +1,21 @@
 #!/bin/bash
-# Asistan.app'i derler:  ./build.sh   (ya da: bash build.sh)
-set -e
+set -euo pipefail
 cd "$(dirname "$0")"
-APP="Asistan.app"
-rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS"
-swiftc -O -o "$APP/Contents/MacOS/Asistan" app/main.swift
+BUILD_CACHE="${ASISTAN_BUILD_CACHE:-${TMPDIR:-/tmp}/asistan-swift-cache}"
+mkdir -p "$BUILD_CACHE"
+export CLANG_MODULE_CACHE_PATH="$BUILD_CACHE"
+export SWIFT_MODULECACHE_PATH="$BUILD_CACHE"
+APP="${ASISTAN_BUILD_OUTPUT:-Asistan.app}"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+swiftc -O -module-cache-path "$BUILD_CACHE" -o "$APP/Contents/MacOS/Asistan" app/main.swift app/Migration.swift app/Protocol.swift app/ModelConfiguration.swift app/ModelSettings.swift app/CallPolicy.swift app/CallerIdentity.swift app/AssistantPreferences.swift app/Personalization.swift app/Setup.swift app/MobileProtocol.swift app/MobileBridge.swift app/MobileSettings.swift app/FocusMonitor.swift app/RecentNotes.swift
 cp app/Info.plist "$APP/Contents/Info.plist"
-# Kaynaklar: ajan, kurulum betiği, bağımlılık listesi, ses dosyaları
-RES="$APP/Contents/Resources"
-mkdir -p "$RES/sesler"
-cp agent.py realtime_mode.py live_mode.py requirements.txt setup.sh "$RES/"
-for f in sesler/*.wav; do [ -f "$f" ] && cp "$f" "$RES/sesler/"; done
-# Uygulama simgesi (iconset -> icns)
-if [ -d app/AppIcon.iconset ] && command -v iconutil >/dev/null; then
-  iconutil -c icns app/AppIcon.iconset -o "$RES/AppIcon.icns" && echo "Simge: AppIcon.icns"
-fi
-IDENT=$(security find-identity -p codesigning | grep "AsistanLocal" | head -1 | awk '{print $2}')
-if [ -n "$IDENT" ]; then
-  codesign --force --deep --sign "$IDENT" "$APP"
-  echo "İmza: AsistanLocal ($IDENT) — sabit; izinler korunur"
-else
-  codesign --force --deep --sign - "$APP"
-  echo "İmza: geçici (her derlemede izinler sıfırlanabilir; make_cert.sh çalıştırılabilir)"
-fi
-echo "Hazır: $(pwd)/$APP"
+iconutil -c icns app/AppIcon.iconset -o "$APP/Contents/Resources/AppIcon.icns"
+cp agent.py llm.py live.py setup.sh requirements.txt requirements.lock requirements-online.lock "$APP/Contents/Resources/"
+rm -rf "$APP/Contents/Resources/vendor"
+cp -R vendor "$APP/Contents/Resources/vendor"
+# Use the stable local signing identity (make_cert.sh) when present, so permissions survive rebuilds.
+IDENT=$(/usr/bin/security find-identity -p codesigning 2>/dev/null | /usr/bin/awk '/AsistanLocal/ {print $2; exit}')
+if [ -z "$IDENT" ]; then IDENT="-"; echo "Uyarı: AsistanLocal kimliği yok; geçici imza kullanılıyor (bash make_cert.sh ile oluşturabilirsiniz)."; fi
+codesign --force --sign "$IDENT" "$APP"
+codesign --verify --strict "$APP"
+echo "Asistan derlendi: $(pwd)/$APP"

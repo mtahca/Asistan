@@ -1,4 +1,4 @@
-# Beta 0.7.1 model seçenekleri
+# Model seçenekleri
 
 Bu belge uygulamadaki seçenekleri açıklar; modellerin Türkçe görüşmelerde birbirine üstünlüğünü gösteren bir ölçüm değildir. Hesap erişimini Kurulum ve durum ekranından kontrol edin.
 
