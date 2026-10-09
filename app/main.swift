@@ -492,6 +492,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var liveFollow = true
     var recentMenu: NSMenu!
     var ringerName = ""
+    var ringDiagnosticSaved = false
     var settingsCache: (modified: Date?, values: [String: String])?
     let routeQueue = DispatchQueue(label: "com.mtahca.asistan.call-route")
     var routeFallback = (UserDefaults.standard.object(forKey: "routeFallbackDefaultInput") as? Bool) ?? true
@@ -1231,14 +1232,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
         }
         detectCallEnded(incoming: incoming)
-        if incoming && !busy { bannerTexts = r.texts; bannerSource = r.source }
+        if incoming && !busy {
+            bannerTexts = r.texts; bannerSource = r.source
+            saveRingDiagnosticIfUnknown(r)
+        }
         if incoming && !answered && !dismissed && !busy {
             showPanel()
             if FocusPolicy.shouldAnswer(manualAuto: autoMode, focusAuto: focusAuto, focused: focusMonitor.active, paused: paused), agentReady, setupStatus().perms, loopbackAudioReady(), callControl(for: .apple) == nil, callControl(for: .whatsapp) == nil { beginAnswer(manual: false) }
         }
         if missing >= 2 { hidePanel() }
-        if missing > 5 && !busy { answered = false; dismissed = false; bannerTexts = [] }
+        if missing > 5 && !busy { answered = false; dismissed = false; bannerTexts = []; ringDiagnosticSaved = false }
         updateStatus()
+    }
+
+    /// When the ringing banner yields no caller, keep its raw accessibility labels once per ring so
+    /// the extraction rules can be fixed from real data. Local file only; overwritten each time.
+    func saveRingDiagnosticIfUnknown(_ result: ScanResult) {
+        guard !ringDiagnosticSaved else { return }
+        let info = extractCaller(from: result.texts, source: result.source)
+        guard info.name.isEmpty && info.number.isEmpty else { return }
+        ringDiagnosticSaved = true
+        var out = "Arayan bulunamadı — \(Date())\nKaynak: \(result.source.rawValue)\n\n"
+        for label in result.texts { out += "\(label.role) \(label.attribute): \(label.value.replacingOccurrences(of: "\n", with: "⏎"))\n" }
+        let url = projectDir.appendingPathComponent("son_arama_tani.txt")
+        try? out.write(to: url, atomically: true, encoding: .utf8)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        logLine("Arayan bulunamadı; bildirim yapısı kaydedildi: \(url.lastPathComponent)")
     }
 
     /// Bildirimdeki "cevapla" düğmesine basar

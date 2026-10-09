@@ -78,17 +78,28 @@ func extractCaller(from labels: [CallerLabel], source: CallSource) -> CallerInfo
         }
         assign(who)
     }
-    // SwiftUI may expose a combined caller/type label on a group instead of
-    // an individual text element. Only accept an explicit call-type suffix.
+    // Notification Center exposes banner content on AXUnknown/AXGroup elements, as one
+    // "Name, FaceTime Audio" label, as "Name\nFaceTime Audio", or as separate elements.
+    // Only accept text that sits next to an explicit call-type label.
     if source == .apple && info.name.isEmpty && info.number.isEmpty {
-        let types = Set(["facetime", "facetime audio", "facetime video", "from your iphone",
+        let types = Set(["facetime", "facetime audio", "facetime video", "from your iphone", "from iphone",
             "iphone’unuzdan", "iphone'unuzdan", "phone", "telefon", "mobile", "cellular",
-            "gelen arama", "gelen sesli arama", "sesli arama"])
-        for label in content where label.role == "AXGroup" && [.description, .value, .title].contains(label.attribute) {
-            let text = clean(label.value)
-            if let range = text.range(of: ", ", options: .backwards), types.contains(String(text[range.upperBound...]).lowercased()) {
-                assign(String(text[..<range.lowerBound]))
-            }
+            "gelen arama", "gelen sesli arama", "sesli arama", "incoming call", "audio", "video"])
+        func isType(_ part: String) -> Bool { types.contains(part.lowercased()) }
+        let controls = Set(["AXButton", "AXMenuButton", "AXPopUpButton", "AXMenu", "AXMenuItem", "AXMenuBar", "AXMenuBarItem", "AXWindow", "AXApplication"])
+        let visible = content.filter { !controls.contains($0.role) && [.description, .value, .title].contains($0.attribute) }
+        // One element carrying both parts.
+        for label in visible {
+            let parts = clean(label.value).components(separatedBy: CharacterSet.newlines).flatMap { $0.components(separatedBy: ", ") }
+                .map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+            guard parts.count >= 2, parts.contains(where: isType) else { continue }
+            for part in parts where !isType(part) { assign(part) }
+            if !info.name.isEmpty || !info.number.isEmpty { return info }
+        }
+        // Separate elements, accepted only inside a notification banner subtree.
+        let banner = labels.contains { $0.attribute == .identifier && $0.value.lowercased().contains("notification") }
+        if banner, visible.contains(where: { isType(clean($0.value)) }) {
+            for label in visible where !isType(clean(label.value)) { assign(label.value) }
         }
     }
     return info

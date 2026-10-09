@@ -1,5 +1,11 @@
 # Doğrulama
 
+## 0.8.5
+
+Kullanıcının ekran görüntülerinde FaceTime, iPhone aktarmalı ve WhatsApp aramalarında arayan adı bildirimde görünüyordu; WhatsApp'ta tanınıyor, Apple bildirimlerinde "Bilinmiyor" kalıyordu. `extractCaller` artık Bildirim Merkezi'nin `AXUnknown`/`AXGroup` öğelerini de okur (`CallerIdentityTests` +6 kontrol). Gerçek bildirim yapısı elde olmadığı için kurallar tahmine dayanır; arayan bulunamayan her çalışta `son_arama_tani.txt` yazılır. Bu dosya kişi adı içerir ve yalnızca yereldir.
+
+Elle kontrol: FaceTime, iPhone ve WhatsApp aramalarında gelen arama paneli ve menü durumu adı göstermeli. Göstermiyorsa `son_arama_tani.txt` dosyasını paylaşın.
+
 ## 0.8.3
 
 GPT-Live: bağlantı koptuğunda aynı aramada yeniden bağlanma (`LiveCall.reconnect`) ve gönderimde zaman aşımı yeniden denemesi eklendi. Üç yeni Python testi bunları sınar: yeniden bağlanan oturumun geçmişi alması ve karşılamayı tekrarlamaması, iki denemeden sonra sunucunun asıl gerekçesinin bildirilmesi, kontrol mesajlarının yeniden denenip ses karelerinin düşürülmesi. Python testleri: 99.

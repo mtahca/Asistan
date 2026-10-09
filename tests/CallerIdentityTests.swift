@@ -64,6 +64,32 @@ import Foundation
             label("AXButton", .description, "Deniz Taşçı, FaceTime Audio"),
             label("AXStaticText", .value, "SceneWindow")], source: .apple)
         check(unrelatedGroups.name.isEmpty); check(unrelatedGroups.number.isEmpty)
+        // Notification Center banner shapes seen on macOS 15/26: AXUnknown content.
+        let unknownCombined = extractCaller(from: [
+            label("AXWindow", .identifier, "FACETIME_NOTIFICATION"),
+            label("AXUnknown", .description, "Mehmet Tahça, FaceTime Audio"),
+            label("AXButton", .description, "Accept")], source: .apple)
+        check(unknownCombined.name == "Mehmet Tahça")
+        let unknownLines = extractCaller(from: [label("AXUnknown", .description, "Aşkım\nFrom Your iPhone")], source: .apple)
+        check(unknownLines.name == "Aşkım")
+        let unknownSeparate = extractCaller(from: [
+            label("AXWindow", .identifier, "FACETIME_NOTIFICATION"),
+            label("AXGroup", .description, "FaceTime"),
+            label("AXUnknown", .description, "Aşkım"),
+            label("AXUnknown", .description, "FaceTime Audio"),
+            label("AXButton", .description, "Decline")], source: .apple)
+        check(unknownSeparate.name == "Aşkım")
+        let separateOutsideBanner = extractCaller(from: [
+            label("AXUnknown", .description, "Aşkım"),
+            label("AXUnknown", .description, "FaceTime Audio")], source: .apple)
+        check(separateOutsideBanner.name.isEmpty)
+        let typeOnly = extractCaller(from: [
+            label("AXWindow", .identifier, "FACETIME_NOTIFICATION"),
+            label("AXUnknown", .description, "FaceTime Audio"),
+            label("AXUnknown", .description, "Incoming call")], source: .apple)
+        check(typeOnly.name.isEmpty && typeOnly.number.isEmpty)
+        let unknownNumber = extractCaller(from: [label("AXUnknown", .value, "+90 555 123 45 67, From Your iPhone")], source: .apple)
+        check(unknownNumber.number == "+90 555 123 45 67" && unknownNumber.name.isEmpty)
         let whatsappGroup = extractCaller(from: [label("AXGroup", .description, "Deniz Taşçı, FaceTime Audio")], source: .whatsapp)
         check(whatsappGroup.name.isEmpty)
         let fallbackCaller = callerAfterConnection(incoming: CallerInfo(), connected: group)
