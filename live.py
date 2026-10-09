@@ -5,6 +5,7 @@ The caller audio uses the existing Loopback devices; connections exist only in c
 from __future__ import annotations
 import base64
 import json
+import os
 from pathlib import Path
 import queue
 import sys
@@ -200,6 +201,33 @@ class Transcript:
         return sorted(rows,key=lambda r:(r['start_ms'],r['speaker']))
 
 
+class NoiseGate:
+    """Passes caller audio to Live only while it rises clearly above the background level.
+    Closed frames become silence so the stream stays continuous. The background estimate is a
+    low percentile of the last ~3 s, so speech pauses keep it low while steady road noise
+    becomes background within seconds. Pre-roll keeps word onsets; hangover keeps word ends."""
+    def __init__(self, np, floor=0.00225, ratio=3.0, hang_frames=25, pre_frames=8, window=100):
+        self.np=np; self.floor=floor; self.ratio=ratio; self.hang=hang_frames
+        self.pre=deque(maxlen=pre_frames); self.recent=deque(maxlen=window); self.open=0; self.noise=floor
+
+    def threshold(self):
+        if len(self.recent)>=20:
+            ordered=sorted(self.recent); self.noise=ordered[len(ordered)//10]
+        return max(self.floor, self.noise*self.ratio)
+
+    def process(self, frame, rms):
+        """Returns (frames to send, speech flag)."""
+        self.recent.append(rms)
+        if rms>self.threshold():
+            out=list(self.pre)+[frame] if self.open==0 else [frame]
+            self.pre.clear(); self.open=self.hang
+            return out, True
+        if self.open>0:
+            self.open-=1; return [frame], True
+        self.pre.append(frame)
+        return [self.np.zeros_like(frame)], False
+
+
 class PCMPlayer:
     """One stream owner closes audio. Callbacks only read a bounded PCM queue."""
     def __init__(self, np, rate=RATE):
@@ -253,6 +281,7 @@ def prompt(system):
     system=system.replace('ve cevabının EN SONUNA [BITTI] yaz.','ve kapanışı arka plan modeline danış.').replace('sonuna [BITTI] yaz.','kapanışı arka plan modeline danış.')
     return system + '''
 Türkçe konuş. Teknik kontrol işaretlerini ve [BITTI] ifadesini asla seslendirme.
+Gürültü kuralı: Arka plan gürültüsü, anlaşılmaz mırıltı veya anlamsız kısa parçalar duyarsan bunlara yanıt verme ve bir şey uydurma; arayan net bir şey söylemediyse sessiz kal. Yalnızca gerçekten anlaşılmaz bir cümle duyduğunda bir kez "Sizi tam duyamadım, tekrar eder misiniz?" de.
 Backchannel policy: Kısa dinleme tepkilerini seyrek kullan.
 Interruption policy: Arayan sözünü kesince sus ve dinle.
 Delegation policy:
@@ -293,6 +322,9 @@ class LiveCall:
         self.greeting_id=None; self.greeting_sent_at=None; self.greeting_ack=False; self.note_acks={}
         self.first_output=False; self.greeting_warning=False
         self.output_text_seen=False; self.greeting_fallback=False; self.caller_audio_seen=False
+        self.gate=None if os.getenv('LIVE_NOISE_GATE','on').lower() in ('off','0','false','no') else NoiseGate(
+            agent.np, floor=getattr(agent,'live_threshold',0.00225), ratio=float(os.getenv('LIVE_GATE_RATIO','3')))
+        self.gated_frames=0
 
     def capture(self,indata,frames,time_info,status):
         if self.s.stop.is_set() or self.worker_stop.is_set(): return
@@ -541,9 +573,12 @@ class LiveCall:
             if not self.errors.empty():raise LiveError(self.errors.get())
             try:
                 frame=self.audio.get(timeout=0.02)
-                pcm=(np.clip(frame,-1,1)*32767).astype('<i2').tobytes()
-                self.connection.send('session.input_audio.append',audio=base64.b64encode(pcm).decode('ascii'),drop_on_timeout=True)
                 rms=float(np.sqrt(np.mean(frame*frame)))
+                outgoing,speech=self.gate.process(frame,rms) if self.gate else ([frame],True)
+                if not speech: self.gated_frames+=1
+                for piece in outgoing:
+                    pcm=(np.clip(piece,-1,1)*32767).astype('<i2').tobytes()
+                    self.connection.send('session.input_audio.append',audio=base64.b64encode(pcm).decode('ascii'),drop_on_timeout=True)
                 voiced=voiced+1 if rms>self.agent.live_threshold else 0
                 if voiced>=10:
                     self.caller_audio_seen=True

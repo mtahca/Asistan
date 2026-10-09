@@ -1,5 +1,11 @@
 # Doğrulama
 
+## 0.8.10
+
+`NoiseGate` (live.py): kare başına RMS; son 100 karenin (≈3 sn) %10 yüzdeliği arka plan; eşik = max(`live_threshold`, arka plan × `LIVE_GATE_RATIO`). Kapı kapalıyken sıfır kare gönderilir; açılırken 8 karelik ön tampon, kapanırken 25 kare gecikme. Testler: ön tampon/gecikme, sessizliğin sıfır olarak gitmesi, sürekli gürültünün arka plana dönmesi, kapatma ve oran ayarı. Python testleri: 105.
+
+Sınır: Konuşma kadar güçlü ani gürültüler (korna, çarpma) yine geçer; modeldeki gürültü kuralı bunlar içindir. Çok sessiz konuşan arayan için kapı fazla sıkıysa Modeller penceresinden kapatın veya `.env` içinde `LIVE_GATE_RATIO=2` deneyin.
+
 ## 0.8.8
 
 `detect_mutual_farewell`: asistanın güncel yanıtı ve arayanın son sözü vedalaşma içeriyorsa `ending`/`ending_spoken` ayarlanır; mevcut kapanış koşulu (ses bitti + 3 sn) devreye girer. Arayan konuşmaya devam ederse kapanış geri alınır. Yeni test: `test_mutual_farewell_ends_the_call_without_backend_marker`. Karşılama hatırlatması 1 sn. Python testleri: 103.

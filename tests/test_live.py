@@ -281,6 +281,32 @@ class LiveTests(unittest.TestCase):
         with contextlib.redirect_stderr(io.StringIO()):
             with self.assertRaises(live.LiveError):live.prewarm_connection('k','Talimat',factory=lambda key:Failing())
 
+    def test_noise_gate_passes_speech_with_preroll_and_hangover_and_mutes_noise(self):
+        gate=live.NoiseGate(np,floor=0.002,ratio=3.0,hang_frames=3,pre_frames=2,window=20)
+        quiet=np.full(720,0.0005,dtype=np.float32);loud=np.full(720,0.05,dtype=np.float32)
+        sent=[]
+        for _ in range(5):
+            frames,speech=gate.process(quiet,0.0005);sent+=frames;self.assertFalse(speech)
+        self.assertTrue(all(float(np.abs(f).max())==0 for f in sent))          # silence, not the room noise
+        frames,speech=gate.process(loud,0.05);self.assertTrue(speech)
+        self.assertEqual(len(frames),3);self.assertIs(frames[-1],loud)         # 2 pre-roll frames + this one
+        self.assertTrue(all(np.isclose(float(f[0]),0.0005) for f in frames[:2]))
+        for _ in range(3):
+            frames,speech=gate.process(quiet,0.0005);self.assertTrue(speech);self.assertIs(frames[0],quiet)  # hangover passes real audio
+        frames,speech=gate.process(quiet,0.0005);self.assertFalse(speech)
+        # Steady road noise becomes background: after the window fills, the same level no longer opens the gate.
+        road=np.full(720,0.01,dtype=np.float32);opened=[]
+        for _ in range(40): opened.append(gate.process(road,0.01)[1])
+        self.assertTrue(opened[0]);self.assertFalse(opened[-1])
+        # Speech above the raised background still passes.
+        self.assertTrue(gate.process(loud,0.05)[1])
+
+    def test_noise_gate_can_be_disabled_and_gated_audio_is_counted(self):
+        with patch.dict(live.os.environ,{'LIVE_NOISE_GATE':'off'}):
+            self.assertIsNone(self.call().gate)
+        with patch.dict(live.os.environ,{'LIVE_NOISE_GATE':'on','LIVE_GATE_RATIO':'4'}):
+            c=self.call();self.assertEqual(c.gate.ratio,4.0)
+
     def test_usage_snapshots_are_not_added(self):
         c=self.call()
         for n in [12,15]:c.handle_event({'type':'session.usage.updated','usage':{'seconds':n}})
