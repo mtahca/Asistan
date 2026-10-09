@@ -62,6 +62,24 @@ import Foundation
         check(plan.inputPress == MenuChoice(path: [0, 1, 1], title: mic))
         check(plan.outputPress == MenuChoice(path: [0, 2, 1], title: "MacBook Air Speakers"))
 
+        // Real WhatsApp menus (from a diagnostics file) carry U+200E before each title.
+        let lrm = "\u{200E}"
+        let realWhatsApp = [MenuNode(title: lrm + "Call", children: [
+            item(lrm + "End Call", enabled: false), item(""),
+            MenuNode(title: lrm + "Camera", children: [item("FaceTime HD Camera", checked: true)]),
+            MenuNode(title: lrm + "Microphone", children: [item(lrm + "Use system setting (Asistan Mikrofonu)", checked: true), item("MacBook Air Microphone"), item(mic)]),
+            MenuNode(title: lrm + "Speaker", children: [item(lrm + "Use system setting (MacBook Air Speakers)"), item("MacBook Air Speakers", checked: true), item("Asistan Ses Çıkışı")]),
+        ])]
+        plan = MenuRoute.plan(realWhatsApp, microphone: mic, assistantDevices: assistant, preferredOutput: nil)
+        check(plan.inputListed && plan.outputCurrent == "MacBook Air Speakers" && plan.outputPress == nil)
+        check(plan.inputReady && plan.inputPress == nil)
+        var notReady = realWhatsApp
+        notReady[0].children[3].children[0].checked = false; notReady[0].children[3].children[1].checked = true
+        notReady[0].children[3].children[0].title = lrm + "Use system setting (MacBook Air Microphone)"
+        plan = MenuRoute.plan(notReady, microphone: mic, assistantDevices: assistant, preferredOutput: nil)
+        check(plan.inputPress == MenuChoice(path: [0, 3, 2], title: mic))
+        check(MenuRoute.section(of: lrm + "Microphone") == .input)
+
         // Without a heading the list could be either side: never press anything.
         let unlabelled = [MenuNode(title: "Audio", children: [item("MacBook Air Microphone", checked: true), item(mic)])]
         plan = MenuRoute.plan(unlabelled, microphone: mic, assistantDevices: assistant, preferredOutput: nil)

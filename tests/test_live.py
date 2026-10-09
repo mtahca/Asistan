@@ -34,6 +34,19 @@ class LiveTests(unittest.TestCase):
         self.emitted=[]
         return live.LiveCall(a,s,'Talimat','Karşılama')
 
+    def test_failed_send_reports_queued_server_reason(self):
+        import io, contextlib
+        c=self.call()
+        c.events.put(delta('input','Merhaba',0,100,'a'))
+        c.events.put({'type':'error','error':{'code':'rate_limit_exceeded','message':'limit'}})
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            reason=c.server_reason()
+        self.assertIn('kota',str(reason));self.assertIn('rate_limit_exceeded',err.getvalue())
+        c=self.call();c.events.put({'type':'session.closed'})
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertIn('sunucu tarafından kapatıldı',str(c.server_reason()))
+        self.assertIsNone(self.call().server_reason())
+
     def test_legacy_default_and_invalid_mode(self):
         self.assertEqual(live.voice_mode({}),'local')
         self.assertEqual(live.voice_mode({'VOICE_MODE':'gpt-live'}),'gpt-live')
