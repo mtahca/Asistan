@@ -57,12 +57,15 @@ enum LiveProtocol {
 }
 
 enum MobileCommand: Equatable {
-    case ping, answer, end, note(String)
+    case ping, answer, end, note(String), pause(Bool)
     static func parse(_ obj: [String: Any]) -> MobileCommand? {
         switch obj["t"] as? String {
         case "ping": return .ping
         case "answer": return .answer
         case "end": return .end
+        case "pause":
+            guard let on = obj["on"] as? Bool else { return nil }
+            return .pause(on)
         case "note":
             guard let raw = obj["text"] as? String else { return nil }
             let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -76,6 +79,7 @@ enum MobileCommand: Equatable {
         case .ping: return true
         case .answer: return ringing && !inSession && !paused && !stopping
         case .note, .end: return inSession && !stopping
+        case .pause: return !inSession && !stopping  // a paired phone may pause answering any time
         }
     }
 }

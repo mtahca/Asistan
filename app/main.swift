@@ -507,8 +507,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if modelSettings == nil { modelSettings = ModelSettingsController(app: self) }
         modelSettings?.show()
     }
-    @objc func togglePaused() {
-        paused.toggle(); UserDefaults.standard.set(paused, forKey: "paused")
+    @objc func togglePaused() { setPaused(!paused) }
+    func setPaused(_ value: Bool) {
+        paused = value; UserDefaults.standard.set(paused, forKey: "paused")
         pauseItem.state = paused ? .on : .off
         if paused { hidePanel() }
         updateStatus()
@@ -569,6 +570,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard let self = self, self.offerToken != nil, !self.dismissed else { return }
             self.beginAnswer(manual: true)
         }
+        mobile.onPause = { [weak self] on in self?.setPaused(on) }
         mobile.onChanged = { [weak self] in self?.refreshMobileMenu(); self?.mobileSettings?.refresh() }
         mobile.startIfEnabled()
         if let notes = try? FileManager.default.contentsOfDirectory(at: projectDir.appendingPathComponent("notlar"), includingPropertiesForKeys: nil) {
@@ -811,7 +813,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         else if offerToken == nil || offerIdentity != identity { offerToken = UUID().uuidString; offerIdentity = identity }
         mobile.setState(inSession: inSession && stoppingDeadline == nil, caller: sessionCaller,
                         startedAt: sessionStarted, status: statusLine.title, ringing: ringing, ringer: ringing ? ringer : "",
-                        context: inSession ? sessionID : offerToken, paused: paused, stopping: stoppingDeadline != nil)
+                        context: inSession ? sessionID : offerToken, paused: paused, stopping: stoppingDeadline != nil,
+                        source: (inSession || humanCallActive ? liveSource : (ringing ? r.source : nil)).map { $0 == .whatsapp ? "whatsapp" : "phone" } ?? "",
+                        humanCall: humanCallActive)
     }
     @objc func toggleAuto() {
         autoMode.toggle()

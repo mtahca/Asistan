@@ -10,7 +10,7 @@ Arama uygulamalarının kendi mikrofon seçimi Asistan'ın sesinin arayana ulaş
 
 Yerel ve GPT-Live ses akışları ayrı seçeneklerdir. Arka plan/özet sağlayıcısı ve modeli ayrıca seçilebilir. Ayar değişiklikleri etkin görüşme sırasında uygulanmaz. API anahtarları yayınlanan kaynaklarda bulunmaz.
 
-Asistan Mobile uyumluluğu mevcut v1 TLS-PSK protokolüyle korunur. Port 47821'dir; Mobile'ın elle adres alanı da bu porta bağlanır. Bağlantı sayısı, çerçeve boyutu, gönderim kuyruğu ve komut sıklığı sınırlandırılmıştır. Yeniden bağlanan telefon canlı metni sınırlı bir bellekten alır; telefona ham ses gitmez. Eşleştirme kodunu bilen yerel ağdaki cihazlar cevaplama, not ve sonlandırma komutlarını kullanabilir.
+Asistan Mobile uyumluluğu mevcut v1 TLS-PSK protokolüyle korunur. Port 47821'dir; Mobile'ın elle adres alanı da bu porta bağlanır. Bağlantı sayısı, çerçeve boyutu, gönderim kuyruğu ve komut sıklığı sınırlandırılmıştır. Yeniden bağlanan telefon canlı metni sınırlı bir bellekten alır; telefona ham ses gitmez. Eşleştirme kodunu bilen yerel ağdaki cihazlar cevaplama, not, sonlandırma ve (görüşme yokken) duraklatma komutlarını kullanabilir. Durum mesajı arama kaynağını, duraklatma ve devralma durumunu da taşır; eski Mobile sürümleri bilinmeyen alanları yok sayar.
 
 Canlı pencere metni her güncellemede yeniden çizer. Kullanıcı yukarı kaydırmışsa okuma konumu korunur; yalnızca en alttayken yeni satırlar izlenir. Son görüşmeler menüsü notlar klasöründeki dosya adlarından ve not başlığındaki "Arayan ekranı" satırından oluşturulur. Menü her açıldığında yeniden okunur.
 
