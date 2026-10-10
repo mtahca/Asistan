@@ -1,5 +1,12 @@
 # Doğrulama
 
+## 0.8.14
+
+- **Notlar ve komutlar:** `test_owner_note_is_paraphrased_and_bang_command_is_never_spoken` (GPT-Live), `test_bang_command_is_context_only` (Gemini, yanıt tetiklemez), `test_local_notes_are_rephrased_by_the_model_and_commands_stay_silent` (yerel mod: not modele gider, komut sistem talimatına eklenir).
+- **Genel bilgi:** `test_question_tool_asks_the_conversation_model_and_replies`, `test_setup_offers_the_question_tool_and_falls_back_without_it`.
+
+Gerçek aramada denenmesi gerekenler: "Muğla Ankara arası kaç km?" sorusu (üç modda); görüşme sırasında "yarın 10'da müsait olacağım" notu ve "!daha kibar konuş" komutu; Gemini'de `app.log`'da "bilgi_al aracı kabul edilmedi" satırı çıkmaması.
+
 ## 0.8.13
 
 - **Gemini ses sırası:** `test_player_buffers_a_long_reply_sent_faster_than_real_time` (30 sn ses bir anda gelince hata yok); 3.1 ayarı 3.8'e geçer (Python ve Swift).

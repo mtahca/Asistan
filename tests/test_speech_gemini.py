@@ -126,6 +126,52 @@ class GeminiTests(unittest.TestCase):
         self.assertEqual(resumed['sessionResumption'], {'handle': 'h1'})
         json.dumps(resumed)
 
+    def test_setup_offers_the_question_tool_and_falls_back_without_it(self):
+        setup = gemini_live.setup_message('Talimat', 'gemini-3.8-live', 'Kore')['setup']
+        self.assertEqual(setup['tools'][0]['functionDeclarations'][0]['name'], 'bilgi_al')
+        self.assertNotIn('tools', gemini_live.setup_message('T', 'gemini-3.8-live', 'Kore', tools=False)['setup'])
+        made = []
+        class Refusing(Connection):
+            def send(self, message, drop_on_timeout=False):
+                self.sent.append(message)
+                if 'setup' in message and 'tools' in message['setup']: self.events.put(None)
+                elif 'setup' in message: self.events.put({'setupComplete': {}})
+                return True
+            def recv(self):
+                try: m = self.events.get(timeout=0.01)
+                except queue.Empty: return None
+                if m is None: raise gemini_live.LiveError('Gemini Live bağlantısı kesildi.')
+                return m
+        c = self.call(); c.factory = lambda key: made.append(Refusing()) or made[-1]
+        import io, contextlib
+        with contextlib.redirect_stderr(io.StringIO()): self.assertTrue(c.open_session())
+        self.assertEqual(len(made), 2); self.assertFalse(c.tools); self.assertTrue(made[0].closed)
+        c.worker_stop.set()
+
+    def test_question_tool_asks_the_conversation_model_and_replies(self):
+        c = self.call(); self.assertTrue(c.open_session())
+        asked = []
+        c.agent._live_delegate = lambda s, history: asked.append(history) or 'Karayoluyla yaklaşık altı yüz kilometre.'
+        c.handle_message({'serverContent': {'inputTranscription': {'text': 'Muğla Ankara arası kaç kilometre?'}}})
+        c.handle_message({'toolCall': {'functionCalls': [{'id': 'f1', 'name': 'bilgi_al', 'args': {'soru': 'Muğla Ankara arası kaç km?'}}]}})
+        for _ in range(100):
+            if not c.answers.empty(): break
+            threading.Event().wait(0.01)
+        c.send_answers()
+        reply = c.connection.sent[-1]['toolResponse']['functionResponses'][0]
+        self.assertEqual((reply['id'], reply['response']['yanit']), ('f1', 'Karayoluyla yaklaşık altı yüz kilometre.'))
+        self.assertEqual([m['role'] for m in asked[0]], ['user'])
+        self.assertIn('Muğla Ankara arası kaç km?', asked[0][-1]['content'])
+        c.worker_stop.set()
+
+    def test_bang_command_is_context_only(self):
+        c = self.call(); self.assertTrue(c.open_session())
+        c.s.notes.append({'id': 'n1', 'text': '!daha kibar konuş', 'status': 'bekliyor'})
+        c.deliver_notes()
+        self.assertFalse(c.connection.sent[-1]['clientContent']['turnComplete'])
+        self.assertIn('arayana söylenmez', c.s.notes[0]['status'])
+        c.worker_stop.set()
+
     def test_settings_validation(self):
         self.assertEqual(gemini_live.model_name({}), 'gemini-3.8-live')
         self.assertEqual(gemini_live.model_name({'GEMINI_LIVE_MODEL': 'gemini-3.1-flash-live-preview'}), 'gemini-3.8-live')
