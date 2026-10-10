@@ -1,4 +1,4 @@
-# Asistan 0.8.11
+# Asistan 0.8.12
 
 macOS menü çubuğunda çalışan yapay zekâ telefon asistanı. iPhone–Mac arama aktarımıyla gelen Telefon/FaceTime ve WhatsApp masaüstü sesli aramalarını karşılar, arayanla Türkçe konuşur ve görüşme notu çıkarır. Görüşmeyi canlı metinden izleyebilir, asistana not gönderebilir, görüşmeyi devralabilir veya sonlandırabilirsiniz. Aynı işleri **Asistan Mobile** ile iPhone'dan da yapabilirsiniz.
 
@@ -108,6 +108,7 @@ Testler kurulu Python ortamını kullanır (`~/Documents/Asistan Data/.venv`). B
 
 ## Sürüm geçmişi
 
+- **0.8.12** — Canlı penceredeki konuşma balonlarında yazıların alt alta dizilmesi düzeltildi; balonlarda ve notlarda saat görünür. Görüşme dökümünde her satırda saat ve aramanın başından geçen süre (`[20:48:06 +00:01]`). Whisper'ın gürültüde uydurduğu kısa cümleler ("Altyazı M.K." gibi) artık arayanın sözü sayılmaz; konuşma başladıktan sonraki ilk 1,2 sn araya girme yok sayılır (`BARGE_GRACE_S`), karşılama gürültüyle kesilirse bir kez yeniden söylenir. Mobil dinleyici ağ değişikliğinde sessizce kapanmak yerine günlüğe yazar ve kendini yeniden başlatır.
 - **0.8.11** — QR ile mobil eşleştirme (256 bit anahtar, 47822 portu; eski 8 haneli kod seçimlik). Gelen aramalar için tek seçim: Kapalı / Bana sor / Odak açıkken / Her zaman (⌘P yine duraklatır). Gelen arama bildiriminde "Asistanla cevapla" düğmesi; panelde Return cevaplar, Esc kapatır. Ayarlar tek pencerede sekmeler hâlinde. Canlı pencerede konuşma balonları. **Tüm görüşmeler…** penceresi: aranabilir not listesi. Hazır notlar Kişiselleştirme'den düzenlenir ve iPhone'a gider; iPhone son görüşmelerin özetlerini görür. Arama algılama: arama uygulamalarının erişilebilirlik olayları hemen tarama başlatır, düğmeler önce kimlikle eşlenir, cevaplama düğmesi bulunamayan aramada uyarı ve tanı dosyası. `main.swift` konularına göre dosyalara bölündü. GitHub Actions CI.
 - **0.8.10** — GPT-Live gürültü kapısı: arayan konuşmazken trafik gibi arka plan sesi OpenAI'ye gönderilmez, yerine sessizlik gider; model gürültüden konuşma uydurmaz. Arka plan seviyesi sürekli ölçülür (son ~3 sn'nin alt yüzdeliği), konuşma onun 3 katını aşınca kapı açılır; 240 ms ön tampon ve 750 ms gecikme sözcük başlarını/sonlarını korur. Modeller penceresinde (GPT-Live modunda) kapatılabilir; `.env`: `LIVE_NOISE_GATE`, `LIVE_GATE_RATIO`. Modele ayrıca gürültüye yanıt vermeme kuralı eklendi.
 - **0.8.9** — Arayan tespiti: 0.8.6'daki genişletme Telefon uygulamasının Son Aramalar satırlarını ("Ad, Outgoing FaceTime Audio, 6 calls, …") arayan sanabiliyordu ve Swift testi düşüyordu. Bildirim kuralı tam olarak "Ad, Tür" biçimine daraltıldı.

@@ -146,9 +146,12 @@ final class MobileBridge {
             case .ready:
                 let all = [self.listener, self.secureListener].compactMap { $0 }
                 self.listening = all.allSatisfy { if case .ready = $0.state { return true }; return false }; self.failure = nil
-                logLine("Mobil bağlantı hazır; port \(port)")
-            case .waiting, .failed:
-                self.stopListener(); self.failure = "Mobil bağlantı açılamadı. Yerel ağ iznini ve \(port) portunu kontrol edip yeniden açın."
+                logLine("Mobil bağlantı hazır; port \(port)"); self.restartDelay = 2
+            case .waiting(let error), .failed(let error):
+                // A network change or sleep can stop a listener; log it and restart instead of going silent.
+                logLine("Mobil bağlantı durdu; port \(port): \(error)")
+                self.stopListener(); self.failure = "Mobil bağlantı yeniden başlatılıyor…"
+                self.scheduleRestart()
             default: break
             }; self.onChanged?()
         }
@@ -159,7 +162,20 @@ final class MobileBridge {
         l.start(queue: .main)
         return l
     }
+    private var restartDelay: TimeInterval = 2
+    private var restartWork: DispatchWorkItem?
+    private func scheduleRestart() {
+        restartWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self = self, self.enabled, self.listener == nil, self.secureListener == nil else { return }
+            self.startListener(); self.onChanged?()
+        }
+        restartWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + restartDelay, execute: work)
+        restartDelay = min(restartDelay * 2, 60)
+    }
     private func stopListener() {
+        restartWork?.cancel(); restartWork = nil
         for l in [listener, secureListener].compactMap({ $0 }) { l.stateUpdateHandler = nil; l.newConnectionHandler = nil; l.cancel() }
         listener = nil; secureListener = nil; listening = false
         let old = clients; clients.removeAll(); for client in old { client.close() }; onChanged?()

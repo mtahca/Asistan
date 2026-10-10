@@ -76,6 +76,7 @@ MAX_TURNS = int(os.getenv("MAX_TURNS", "25"))        # cevaplanan en fazla tur s
 BARGE_IN = os.getenv("BARGE_IN", "1") == "1"                 # arayan araya girerse asistan sussun
 BARGE_FRAMES = int(os.getenv("BARGE_FRAMES", "10"))          # kaç ardışık konuşma çerçevesi (1 çerçeve = 30 ms)
 BARGE_FACTOR = float(os.getenv("BARGE_FACTOR", "1.5"))       # asistan konuşurken eşik çarpanı
+BARGE_GRACE_S = float(os.getenv("BARGE_GRACE_S", "1.2"))     # konuşma başladıktan sonra araya girmenin yok sayıldığı süre (hat sesi, yankı)
 FRAME_S = 0.03
 
 GREETING_TEXT = (
@@ -218,6 +219,16 @@ HALLUCINATIONS = (
     "altyazı", "abone ol", "izlediğiniz için", "izlediğin için", 
     "devam edecek", "iyi seyirler",
 )
+
+
+def is_hallucination(text: str) -> bool:
+    """True for empty output and short lines that start with a known phantom phrase, e.g. "Altyazı M.K."."""
+    normalized = " ".join(text.replace("İ", "i").replace("I", "ı").lower().strip(" .,!?…\"'").split())
+    if not normalized:
+        return True
+    if text.rstrip().endswith("?"):
+        return False  # a short question is the caller talking
+    return len(normalized.split()) <= 6 and any(normalized.startswith(h) for h in HALLUCINATIONS)
 
 
 def log(msg: str) -> None:
@@ -777,7 +788,9 @@ class Agent:
 
     def _record(self, s: Session, speaker: str, text: str) -> None:
         with s.lock:
-            s.transcript.append(f"{speaker}: {text}")
+            # Clock time and time since the call was answered, for checking delays against app.log.
+            now = datetime.now(); elapsed = max(0, int((now - s.started).total_seconds()))
+            s.transcript.append(f"[{now:%H:%M:%S} +{elapsed // 60:02d}:{elapsed % 60:02d}] {speaker}: {text}")
         emit("transcript", s.id, speaker=speaker, text=text)
         self._checkpoint(s)
 
@@ -868,7 +881,9 @@ class Agent:
             except queue.Empty:
                 continue
             utt = detector.feed(frame)
-            if BARGE_IN and not interrupted and detector.active and detector.voiced >= BARGE_FRAMES:
+            # Line noise and echo right after playback starts must not cut the assistant off.
+            settled = turn.first_play is not None and time.monotonic() - turn.first_play >= BARGE_GRACE_S
+            if BARGE_IN and settled and not interrupted and detector.active and detector.voiced >= BARGE_FRAMES:
                 interrupted = True; cancel.set(); self.voice.interrupt(turn)
                 emit("interrupted", s.id)
             if interrupted and utt is not None:
@@ -973,6 +988,7 @@ class Agent:
             history = [{"role":"user","content":"Arama bağlandı."},
                        {"role":"assistant","content":greeting + (" [sözü kesildi]" if interrupted else "")}]
             wait = FIRST_WAIT_S
+            greeted = not interrupted
             for _ in range(MAX_TURNS):
                 if self._expired(s, started): break
                 if pending is None:
@@ -986,11 +1002,17 @@ class Agent:
                     self._speak(s, started, text="Mesajınız varsa tekrar arayabilirsiniz. İyi günler.")
                     break
                 text = self._stt(audio)
-                # Short valid utterances are retained. Only exact known artefacts are rejected.
-                normalized = text.lower().strip(" .!?")
-                if not text or normalized in ("altyazı", "abone ol", "izlediğiniz için teşekkürler"):
+                # Short valid utterances are retained; Whisper's phantom lines on noise are dropped.
+                if is_hallucination(text):
                     if os.getenv("DEBUG_AUDIO", "0") == "1": save_debug_audio(audio, "stt")
+                    if not greeted:
+                        # Noise cut the greeting off before the caller heard it; say it once more.
+                        greeted = True
+                        _, pending, interrupted = self._speak(s, started, text=greeting)
+                        history[-1]["content"] = greeting + (" [sözü kesildi]" if interrupted else "")
+                        wait = FIRST_WAIT_S; continue
                     wait = IDLE_WAIT_S; continue
+                greeted = True
                 self._record(s, "Arayan", text)
                 history.append({"role":"user","content":text})
                 answer, pending, interrupted = self._speak(s, started, history=history)

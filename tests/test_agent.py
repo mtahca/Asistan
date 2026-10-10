@@ -562,5 +562,38 @@ class BetaTests(unittest.TestCase):
         self.assertNotIn(secret,output.getvalue())
         self.assertFalse(json.loads(output.getvalue())['checks'][0]['ok'])
 
+    def test_hallucination_filter_drops_phantom_lines_only(self):
+        for text in ('', ' ', 'Altyazı M.K.', 'altyazı', 'Abone olmayı unutmayın.', 'İzlediğiniz için teşekkürler.'):
+            self.assertTrue(beta.is_hallucination(text), text)
+        for text in ('Merhaba.', 'Adım Mehmet.', 'Altyazıyı açar mısınız?', 'Devam edecek misiniz?',
+                     'Altyazı konusunda Mehmet Bey ile konuşmam gerekiyor, ne zaman müsait olur acaba söyler misiniz'):
+            self.assertFalse(beta.is_hallucination(text), text)
+
+    def test_record_stamps_clock_and_elapsed_time(self):
+        a = self.agent(); s = self.session()
+        a._record(s, 'Arayan', 'Merhaba.')
+        self.assertRegex(s.transcript[-1], r'^\[\d{2}:\d{2}:\d{2} \+00:0\d\] Arayan: Merhaba\.$')
+
+    def test_greeting_cut_by_noise_is_repeated_once(self):
+        a = self.agent(); s = self.session(); spoken = []
+        class Stream:
+            def __init__(self, **kw): pass
+            def start(self): pass
+            def stop(self): pass
+            def close(self): pass
+        def speak(session, started, history=None, text=None):
+            spoken.append(text)
+            if len(spoken) == 1: return text, beta.np.zeros(160, dtype=beta.np.float32), True
+            return text, None, False
+        a._speak = speak
+        a._stt = lambda audio: 'Altyazı M.K.'
+        a._wait = lambda *args: None
+        with patch.object(beta, 'sd', SimpleNamespace(InputStream=Stream)), patch.object(beta, 'GREETING_DELAY_S', 0):
+            a.run_session(s)
+        greeting = beta.build_greeting(s.caller, s.preferences)
+        self.assertEqual(spoken[:2], [greeting, greeting])
+        self.assertEqual(len(spoken), 3)  # greeting, repeated greeting, goodbye after silence
+        self.assertFalse(any('Altyazı' in line for line in s.transcript))
+
 if __name__ == '__main__':
     unittest.main()
