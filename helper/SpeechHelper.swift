@@ -17,8 +17,8 @@ func reply(_ object: [String: Any]) {
 #if compiler(>=6.2)
 @available(macOS 26, *)
 func makeTranscriber(_ locale: Locale) -> DictationTranscriber {
-    // One finished utterance per file; punctuation helps the language model read the caller's words.
-    DictationTranscriber(locale: locale, contentHints: [.shortForm], transcriptionOptions: [.punctuation],
+    // No .shortForm hint: with it the model never marks a result final (checked on macOS 27).
+    DictationTranscriber(locale: locale, contentHints: [], transcriptionOptions: [.punctuation],
                          reportingOptions: [], attributeOptions: [])
 }
 
@@ -34,7 +34,8 @@ func prepare() async throws -> Locale {
             try await request.downloadAndInstall()
         }
     }
-    guard await AssetInventory.status(forModules: [probe]) == .installed else {
+    // Status can stay .supported after a successful install, so only a missing or unsupported model fails.
+    guard await AssetInventory.status(forModules: [probe]) >= .supported else {
         throw HelperError("Apple Türkçe dikte modeli indirilemedi. İnternet bağlantısını kontrol edin.")
     }
     return locale
@@ -46,9 +47,13 @@ func transcribe(_ url: URL, locale: Locale) async throws -> String {
     let analyzer = SpeechAnalyzer(modules: [transcriber], options: .init(priority: .userInitiated, modelRetention: .processLifetime))
     let file = try AVAudioFile(forReading: url)
     let collector = Task {
-        var text = ""
-        for try await result in transcriber.results where result.isFinal { text += String(result.text.characters) }
-        return text
+        // Final results by range; a range that never became final keeps its latest volatile text.
+        var final: [(Double, String)] = [], pending: [Double: String] = [:]
+        for try await result in transcriber.results {
+            let text = String(result.text.characters), start = result.range.start.seconds
+            if result.isFinal { final.append((start, text)); pending[start] = nil } else { pending[start] = text }
+        }
+        return (final + pending.map { ($0.key, $0.value) }).sorted { $0.0 < $1.0 }.map(\.1).joined(separator: " ")
     }
     if let end = try await analyzer.analyzeSequence(from: file) {
         try await analyzer.finalizeAndFinish(through: end)
