@@ -92,13 +92,148 @@ def put_latest(q, item):
         except queue.Full: pass
 
 
+# The server sees an idle link as dead if nothing arrives for ~15-30 s; a WebSocket ping keeps it open.
+PING_INTERVAL_S = 10
+
+
+class LinkDropped(Exception):
+    """Raised by SocketPump.recv/send once the link is gone; the text is for app.log only."""
+
+
+class SocketPump:
+    """Only this thread touches the socket. websocket-client's reader and sender used to share
+    one TLS socket from two threads; OpenSSL objects are not safe for that and the corrupted
+    records dropped the call every 18-30 s. Callers queue sends and read received messages."""
+
+    def __init__(self, ws, label):
+        import select
+        import socket
+        import websocket
+        self.ws, self.label, self.select = ws, label, select.select
+        self.abnf, self.timeout_error = websocket.ABNF, websocket.WebSocketTimeoutException
+        self.inbox, self.outbox = queue.Queue(), queue.Queue()
+        self.wake_r, self.wake_w = socket.socketpair()
+        self.wake_r.setblocking(False); self.wake_w.setblocking(False)
+        self.stopped = threading.Event(); self.error = None
+        now = time.monotonic()
+        self.last_recv = self.last_send = self.last_pong = self.last_ping = now
+        self.thread = threading.Thread(target=self.run, name=label + ' soket', daemon=True); self.thread.start()
+
+    def _wake(self):
+        try: self.wake_w.send(b'x')
+        except OSError: pass
+
+    def send(self, payload):
+        """Blocks until this thread has written the whole frame; never retried or cut short."""
+        if self.error: raise LinkDropped(self.error)
+        done = [threading.Event(), None]
+        self.outbox.put((payload, done)); self._wake()
+        while not done[0].wait(0.5):
+            if self.error or self.stopped.is_set(): break
+        if done[0].is_set() and done[1] is None: return
+        raise LinkDropped(done[1] or self.error or 'kapatıldı')
+
+    def recv(self, timeout):
+        """A received message, None after timeout, or LinkDropped once the link is gone."""
+        try: item = self.inbox.get(timeout=timeout)
+        except queue.Empty: return None
+        if item is None:
+            self.inbox.put(None)  # every later recv sees the drop too
+            raise LinkDropped(self.error or 'kapatıldı')
+        return item
+
+    def close(self):
+        self.stopped.set(); self._wake()
+        if threading.current_thread() is not self.thread: self.thread.join(timeout=2)
+        for s in (self.wake_r, self.wake_w):
+            try: s.close()
+            except OSError: pass
+
+    def _ages(self):
+        now = time.monotonic()
+        return (f'son alım {now-self.last_recv:.1f} sn, son gönderim {now-self.last_send:.1f} sn, '
+                f'son pong {now-self.last_pong:.1f} sn önce')
+
+    def _fail(self, reason):
+        if not self.stopped.is_set():
+            self.error = reason
+            diagnose(f'{self.label} bağlantısı koptu: {reason}; {self._ages()}')
+        self.inbox.put(None)
+        while True:
+            try: _, done = self.outbox.get_nowait()
+            except queue.Empty: break
+            done[1] = reason; done[0].set()
+
+    def _flush(self):
+        while not self.stopped.is_set():
+            try: payload, done = self.outbox.get_nowait()
+            except queue.Empty: return
+            try: self.ws.send(payload)
+            except Exception as e:
+                done[1] = f'gönderim: {type(e).__name__}: {e}'; done[0].set(); raise
+            self.last_send = time.monotonic(); done[0].set()
+
+    def _read(self):
+        opcode, frame = self.ws.recv_data_frame(True)
+        self.last_recv = time.monotonic()
+        if opcode == self.abnf.OPCODE_TEXT:
+            data = frame.data if hasattr(frame, 'data') else frame
+            self.inbox.put(data.decode('utf-8') if isinstance(data, bytes) else data)
+        elif opcode == self.abnf.OPCODE_BINARY:
+            self.inbox.put(frame.data if hasattr(frame, 'data') else frame)
+        elif opcode == self.abnf.OPCODE_PONG:
+            self.last_pong = self.last_recv
+        elif opcode == self.abnf.OPCODE_CLOSE:
+            data = frame.data or b''
+            code = int.from_bytes(data[:2], 'big') if len(data) >= 2 else None
+            reason = data[2:].decode('utf-8', 'replace')[:120]
+            raise LinkDropped(f'sunucu kapattı: kod={code} neden={reason or "-"}')
+
+    def _pending(self):
+        sock = self.ws.sock
+        try: return bool(sock.pending())
+        except Exception: return False
+
+    def run(self):
+        missed_pong_logged = False
+        try:
+            while not self.stopped.is_set():
+                self._flush()
+                now = time.monotonic()
+                if now - self.last_ping >= PING_INTERVAL_S:
+                    if self.last_pong < self.last_ping and not missed_pong_logged:
+                        diagnose(f'{self.label}: {now-self.last_ping:.1f} sn içinde pong gelmedi; {self._ages()}')
+                        missed_pong_logged = True
+                    elif self.last_pong >= self.last_ping:
+                        missed_pong_logged = False
+                    self.ws.ping(); self.last_ping = now
+                if self._pending(): readable = [self.ws.sock]
+                else:
+                    wait = max(0.0, self.last_ping + PING_INTERVAL_S - time.monotonic())
+                    readable, _, _ = self.select([self.ws.sock, self.wake_r], [], [], wait)
+                if self.wake_r in readable:
+                    try:
+                        while self.wake_r.recv(4096): pass
+                    except (BlockingIOError, OSError): pass
+                if self.stopped.is_set(): break
+                if self.ws.sock in readable:
+                    try: self._read()
+                    except self.timeout_error: pass  # a partial frame; the rest is buffered for the next read
+        except LinkDropped as e:
+            self._fail(str(e))
+        except Exception as e:
+            self._fail(f'{type(e).__name__}: {e}')
+        else:
+            self._fail('kapatıldı')
+
+
 class LiveConnection:
     def __init__(self, key, timeout=8, factory=None):
         import certifi
         import websocket
         self.timeout_error = websocket.WebSocketTimeoutException
         self.closed = False
-        self.ws = None
+        self.ws = self.pump = None
         try:
             # This native client is not a browser. Match the official SDK: no Origin.
             self.ws = (factory or websocket.create_connection)(ENDPOINT, timeout=timeout,
@@ -108,6 +243,8 @@ class LiveConnection:
             if self.ws.getstatus() != 101:
                 raise LiveError('GPT-Live bağlantısı yönlendirildi veya kabul edilmedi.')
             self.ws.settimeout(SOCKET_TIMEOUT_S)
+            # Test doubles have no socket; they keep the direct calls.
+            self.pump = SocketPump(self.ws, 'GPT-Live') if getattr(self.ws, 'sock', None) is not None else None
         except Exception as e:
             self.close()
             code = getattr(e, 'status_code', None)
@@ -124,15 +261,21 @@ class LiveConnection:
         event_id = event_id or 'beta_' + uuid.uuid4().hex
         payload = json.dumps(dict(type=kind, event_id=event_id, **fields), ensure_ascii=False)
         try:
-            self.ws.send(payload)
+            if self.pump: self.pump.send(payload)
+            else: self.ws.send(payload)
             return event_id
+        except LinkDropped as e:
+            diagnose(f'{kind} gönderilemedi: {e}')
         except Exception as e:
             diagnose(f'{kind} gönderilemedi: {type(e).__name__}: {e}')
         raise LiveError('GPT-Live bağlantısına veri gönderilemedi.')
 
     def recv(self):
         try:
-            raw = self.ws.recv()
+            if self.pump:
+                raw = self.pump.recv(SOCKET_TIMEOUT_S)
+                if raw is None: return None
+            else: raw = self.ws.recv()
             if not raw: raise LiveError('GPT-Live bağlantısı kapandı.')
             event = json.loads(raw)
             if not isinstance(event, dict): raise ValueError()
@@ -141,12 +284,15 @@ class LiveConnection:
             return None
         except LiveError:
             raise
+        except LinkDropped:
+            raise LiveError('GPT-Live bağlantısı kesildi veya yanıt okunamadı.') from None
         except Exception as e:
             diagnose(f'okuma hatası: {type(e).__name__}: {e}')
             raise LiveError('GPT-Live bağlantısı kesildi veya yanıt okunamadı.') from None
 
     def close(self):
         self.closed = True
+        if self.pump is not None: self.pump.close()
         if self.ws is not None:
             try: self.ws.shutdown()
             except Exception: pass

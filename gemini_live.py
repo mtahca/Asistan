@@ -10,7 +10,7 @@ import threading
 import time
 from datetime import datetime
 
-from live import SOCKET_TIMEOUT_S, LiveError, NoiseGate, PCMPlayer, diagnose, lower_tr, owner_context, owner_note, override_reminder, prompt, put_latest, remember_command
+from live import SOCKET_TIMEOUT_S, LinkDropped, LiveError, SocketPump, NoiseGate, PCMPlayer, diagnose, lower_tr, owner_context, owner_note, override_reminder, prompt, put_latest, remember_command
 
 ENDPOINT = 'wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent'
 INPUT_RATE = 16000
@@ -85,13 +85,15 @@ class GeminiConnection:
         import certifi
         import websocket
         self.timeout_error = websocket.WebSocketTimeoutException
-        self.ws = None
+        self.ws = self.pump = None
         try:
             self.ws = (factory or websocket.create_connection)(ENDPOINT + '?key=' + key.strip(), timeout=timeout,
                 redirect_limit=0, suppress_origin=True, enable_multithread=True, sslopt={'ca_certs': certifi.where()})
             if self.ws.getstatus() != 101:
                 raise LiveError('Gemini Live bağlantısı kabul edilmedi.')
             self.ws.settimeout(SOCKET_TIMEOUT_S)
+            # Test doubles have no socket; they keep the direct calls.
+            self.pump = SocketPump(self.ws, 'Gemini') if getattr(self.ws, 'sock', None) is not None else None
         except Exception as e:
             self.close()
             code = getattr(e, 'status_code', None)
@@ -106,14 +108,21 @@ class GeminiConnection:
         # Never abandoned midway (see live.SOCKET_TIMEOUT_S); drop_on_timeout is kept for callers.
         payload = json.dumps(message, ensure_ascii=False)
         try:
-            self.ws.send(payload); return True
+            if self.pump: self.pump.send(payload)
+            else: self.ws.send(payload)
+            return True
+        except LinkDropped as e:
+            diagnose(f'Gemini gönderimi başarısız: {e}')
         except Exception as e:
             diagnose(f'Gemini gönderimi başarısız: {type(e).__name__}: {e}')
         raise LiveError('Gemini Live bağlantısına veri gönderilemedi.')
 
     def recv(self):
         try:
-            raw = self.ws.recv()
+            if self.pump:
+                raw = self.pump.recv(SOCKET_TIMEOUT_S)
+                if raw is None: return None
+            else: raw = self.ws.recv()
             if not raw: raise LiveError('Gemini Live bağlantısı kapandı.')
             message = json.loads(raw)
             if not isinstance(message, dict): raise ValueError()
@@ -122,12 +131,15 @@ class GeminiConnection:
             return None
         except LiveError:
             raise
+        except LinkDropped:
+            raise LiveError('Gemini Live bağlantısı kesildi.') from None
         except Exception as e:
             reason = getattr(self.ws, 'close_reason', None) if self.ws else None
             diagnose(f'Gemini okuma hatası: {type(e).__name__}: {e} {reason or ""}')
             raise LiveError('Gemini Live bağlantısı kesildi.') from None
 
     def close(self):
+        if self.pump is not None: self.pump.close()
         if self.ws is not None:
             try: self.ws.close()
             except Exception: pass

@@ -511,4 +511,47 @@ class LiveCallIntegrationTests(unittest.TestCase):
         t.add({'type':'session.output_transcript.delta','delta':'Pardon, bağlantı kesildi.','start_ms':0,'end_ms':1500})
         self.assertEqual([r['text'] for r in t.rows()],['Merhaba, Mehmet Bey müsait değil.','Pardon, bağlantı kesildi.'])
 
+    def socket_pair(self):
+        import socket,websocket
+        a,b=socket.socketpair()
+        client=websocket.WebSocket(enable_multithread=True);client.sock=a;client.connected=True
+        client.handshake_response=SimpleNamespace(status=101,headers={},subprotocol=None)
+        server=websocket.WebSocket();server.sock=b;server.connected=True
+        return client,server
+
+    def test_one_thread_owns_the_socket_and_logs_the_close_code(self):
+        import json,io,contextlib
+        import gemini_live
+        for make in (lambda ws:live.LiveConnection('k',factory=lambda *a,**k:ws),
+                     lambda ws:gemini_live.GeminiConnection('k',factory=lambda *a,**k:ws)):
+            client,server=self.socket_pair()
+            c=make(client);self.assertIsNotNone(c.pump)
+            used=[]
+            real_send,real_read=client.send,client.recv_data_frame
+            client.send=lambda *a,**k:(used.append(threading.current_thread()),real_send(*a,**k))[1]
+            client.recv_data_frame=lambda *a,**k:(used.append(threading.current_thread()),real_read(*a,**k))[1]
+            c.send({'n':1}) if c.__class__.__name__=='GeminiConnection' else c.send('x',n=1)
+            self.assertIn('"n": 1',server.recv())
+            server.send(json.dumps({'type':'echo'}))
+            event=None;deadline=time.monotonic()+3
+            while event is None and time.monotonic()<deadline:event=c.recv()
+            self.assertEqual(event['type'],'echo')
+            server.send_close(1011,b'deadline')
+            log=io.StringIO()
+            with contextlib.redirect_stderr(log):
+                with self.assertRaises(live.LiveError):
+                    while time.monotonic()<deadline:c.recv()
+            self.assertIn('kod=1011 neden=deadline',log.getvalue())
+            self.assertEqual({t.name for t in used},{c.pump.thread.name})
+            c.close();server.sock.close()
+
+    def test_pump_pings_an_idle_link(self):
+        client,server=self.socket_pair()
+        with patch.object(live,'PING_INTERVAL_S',0.1):
+            c=live.LiveConnection('k',factory=lambda *a,**k:client)
+            import websocket
+            opcode,_=server.recv_data_frame(True)
+            self.assertEqual(opcode,websocket.ABNF.OPCODE_PING)
+            c.close();server.sock.close()
+
 if __name__=='__main__':unittest.main()

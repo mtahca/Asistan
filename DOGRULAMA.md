@@ -1,5 +1,10 @@
 # Doğrulama
 
+## 0.9.0
+- Uygulamalar'daki Asistan açıkken derleme kopyasını açın: "Asistan zaten açık" uyarısı çıkar ve kopya kapanır. Derleme kopyası açıkken Uygulamalar'dakini açın: eski kopya kapanır, app.log'da "Başka bir Asistan kopyası açıktı; kapatılıyor" satırı görünür.
+- GPT-Live ve Gemini Live ile 3 dakikadan uzun bir görüşme yapın: bağlantı kopmamalı. Koparsa app.log'daki "bağlantısı koptu" satırında kapanış kodu ve son alım/gönderim/pong süreleri yazar.
+- Otomatik: `tests/test_live.py` gerçek bir WebSocket çifti üzerinden bütün okuma ve yazmanın tek iş parçacığında yapıldığını, ping gönderildiğini ve kapanış kodunun kaydedildiğini sınar; `tests/SingleInstanceTests.swift` hangi kopyanın çalışacağını sınar.
+
 ## 0.8.14
 
 - **Notlar ve komutlar:** `test_owner_note_is_paraphrased_and_bang_command_is_never_spoken` (GPT-Live), `test_bang_command_is_context_only` (Gemini, yanıt tetiklemez), `test_local_notes_are_rephrased_by_the_model_and_commands_stay_silent` (yerel mod: not modele gider, komut sistem talimatına eklenir).
