@@ -122,13 +122,13 @@ class GeminiTests(unittest.TestCase):
         self.assertEqual(new['generationConfig']['speechConfig']['voiceConfig']['prebuiltVoiceConfig']['voiceName'], 'Kore')
         self.assertNotIn('languageCode', new['generationConfig']['speechConfig'])
         self.assertEqual(new['inputAudioTranscription'], {'languageCodes': ['tr']})
-        old = gemini_live.setup_message('Talimat', 'gemini-3.1-flash-live-preview', 'Aoede', handle='h1')['setup']
-        self.assertEqual(old['generationConfig']['thinkingConfig'], {'thinkingLevel': 'minimal'})
-        self.assertEqual(old['sessionResumption'], {'handle': 'h1'})
-        json.dumps(old)
+        resumed = gemini_live.setup_message('Talimat', 'gemini-3.8-live', 'Aoede', handle='h1')['setup']
+        self.assertEqual(resumed['sessionResumption'], {'handle': 'h1'})
+        json.dumps(resumed)
 
     def test_settings_validation(self):
         self.assertEqual(gemini_live.model_name({}), 'gemini-3.8-live')
+        self.assertEqual(gemini_live.model_name({'GEMINI_LIVE_MODEL': 'gemini-3.1-flash-live-preview'}), 'gemini-3.8-live')
         self.assertEqual(gemini_live.voice_name({}), 'Kore')
         with self.assertRaises(ValueError): gemini_live.model_name({'GEMINI_LIVE_MODEL': 'gemini-2.5'})
         with self.assertRaises(ValueError): gemini_live.voice_name({'GEMINI_LIVE_VOICE': 'kore'})
@@ -162,6 +162,12 @@ class GeminiTests(unittest.TestCase):
         self.assertEqual(c.transcript.public()[0]['text'], 'Merhaba, Mehmet Bey müsait değil.')
         self.assertRegex(c.s.transcript[1], r'^\[\d{2}:\d{2}:\d{2} \+\d{2}:\d{2}\] Arayan: Adım Mehmet\.$')
         c.worker_stop.set()
+
+    def test_player_buffers_a_long_reply_sent_faster_than_real_time(self):
+        c = self.call()
+        second = base64.b64encode(np.zeros(gemini_live.OUTPUT_RATE, dtype='<i2').tobytes()).decode()
+        for _ in range(30): c.player.push(second)  # 30 s of audio arriving at once must not raise
+        self.assertTrue(c.player.busy())
 
     def test_mutual_farewell_ends_the_call(self):
         c = self.call(); self.assertTrue(c.open_session())

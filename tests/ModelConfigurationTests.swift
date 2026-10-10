@@ -71,8 +71,9 @@ import Foundation
         check(try BetaModelConfiguration.missingCredentials(in: gemini.merging(["GEMINI_API_KEY":"AIza-private-example-gemini-key"], uniquingKeysWith: { _, new in new })).isEmpty)
         check(try BetaModelConfiguration.geminiVoice(in: [:]) == "Kore")
         check(try BetaModelConfiguration.geminiModel(in: [:]) == "gemini-3.8-live")
-        check(try BetaModelConfiguration.geminiModel(in: ["GEMINI_LIVE_MODEL":"gemini-3.1-flash-live-preview"]) == "gemini-3.1-flash-live-preview")
-        check(BetaModelConfiguration.geminiModelTitle(in: ["GEMINI_LIVE_MODEL":"gemini-3.1-flash-live-preview"]) == "Gemini 3.1 Flash Live")
+        check(try BetaModelConfiguration.geminiModel(in: ["GEMINI_LIVE_MODEL":"gemini-3.1-flash-live-preview"]) == "gemini-3.8-live")
+        check(BetaModelConfiguration.geminiModelTitle(in: ["GEMINI_LIVE_MODEL":"gemini-3.1-flash-live-preview"]) == "Gemini 3.8 Live")
+        check(BetaModelConfiguration.geminiModels.count == 1)
         let deepgram = ["STT_BACKEND":"deepgram", "ANTHROPIC_API_KEY":"private-anthropic-example-key"]
         check(try BetaModelConfiguration.requiredProviders(in: deepgram) == ["anthropic", "deepgram"])
         check(try BetaModelConfiguration.requiredProviders(in: ["STT_BACKEND":"apple"]) == ["anthropic"])

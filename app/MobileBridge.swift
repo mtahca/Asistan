@@ -63,7 +63,7 @@ final class MobileClient {
     }
 }
 
-// All callbacks run on the main queue. Disabled by default; keeps the pairing code carried over from Beta.
+// All callbacks run on the main queue. Disabled by default; phones pair with the QR key.
 final class MobileBridge {
     var onNote: ((String) -> Void)?
     var onEnd: (() -> Void)?
@@ -72,14 +72,10 @@ final class MobileBridge {
     var onChanged: (() -> Void)?
     private let defaults: UserDefaults
     private(set) var enabled: Bool
-    private(set) var code: String
     private(set) var key: Data
-    /// Old Asistan Mobile versions only know the 8-digit code; turn this off once every phone uses the QR code.
-    private(set) var legacyEnabled: Bool
     private(set) var listening = false
     private(set) var failure: String?
     private var listener: NWListener?
-    private var secureListener: NWListener?
     private var quickNotes: [String] = []
     private var history: [[String: Any]] = []
     private var clients: [MobileClient] = []
@@ -92,7 +88,6 @@ final class MobileBridge {
     private var noticeSequence = -1
     let macName: String
     var clientCount: Int { clients.filter { $0.ready }.count }
-    var displayCode: String { String(code.prefix(4)) + " " + String(code.suffix(4)) }
     var status: String {
         if !enabled { return "Mobil bağlantı kapalı" }
         if let failure = failure { return failure }
@@ -102,56 +97,53 @@ final class MobileBridge {
         self.defaults = defaults
         enabled = defaults.bool(forKey: "betaMobileEnabled")
         macName = LiveProtocol.serviceName(host: Host.current().localizedName ?? "Mac")
-        if let stored = defaults.string(forKey: "betaMobileCode"), stored.utf8.count == 8, stored.utf8.allSatisfy({ (48...57).contains($0) }) { code = stored }
-        else { code = Self.newCode(); defaults.set(code, forKey: "betaMobileCode") }
         if let stored = defaults.string(forKey: "mobileKey").flatMap(PairingLink.decode), stored.count == PairingLink.keyLength { key = stored }
         else { key = PairingLink.newKey(); defaults.set(PairingLink.encode(key), forKey: "mobileKey") }
-        legacyEnabled = (defaults.object(forKey: "mobileLegacyCode") as? Bool) ?? true
+        // The 8-digit code was removed in 0.8.13.
+        defaults.removeObject(forKey: "betaMobileCode"); defaults.removeObject(forKey: "mobileLegacyCode")
     }
-    static func newCode() -> String { String(format: "%08d", Int.random(in: 0..<100_000_000)) }
     func startIfEnabled() { if enabled { startListener() } }
     func setEnabled(_ value: Bool) {
         enabled = value; defaults.set(value, forKey: "betaMobileEnabled")
         if value { startListener() } else { stopListener() }; onChanged?()
     }
-    /// Renews both the QR key and the 8-digit code; every paired phone must pair again.
-    func regenerateCode() {
-        let old = code
-        repeat { code = Self.newCode() } while code == old
-        defaults.set(code, forKey: "betaMobileCode")
+    /// Renews the QR key; every paired phone must scan the new QR code.
+    func regenerateKey() {
         key = PairingLink.newKey(); defaults.set(PairingLink.encode(key), forKey: "mobileKey")
-        stopListener(); if enabled { startListener() }; onChanged?()
-    }
-    func setLegacyEnabled(_ value: Bool) {
-        legacyEnabled = value; defaults.set(value, forKey: "mobileLegacyCode")
         stopListener(); if enabled { startListener() }; onChanged?()
     }
     func shutdown() { stopListener() }
     private func startListener() {
-        guard listener == nil, secureListener == nil else { return }; failure = nil; listening = false
+        guard listener == nil else { return }; failure = nil; listening = false
+        let port = LiveProtocol.port
         do {
-            secureListener = try makeListener(LiveProtocol.parameters(key: key), port: LiveProtocol.securePort, type: LiveProtocol.secureServiceType)
-            if legacyEnabled { listener = try makeListener(LiveProtocol.parameters(code: code), port: LiveProtocol.port, type: LiveProtocol.serviceType) }
+            let l = try NWListener(using: LiveProtocol.parameters(key: key), on: NWEndpoint.Port(rawValue: port)!)
+            l.service = NWListener.Service(name: macName, type: LiveProtocol.serviceType)
+            listener = l; configure(l, port: port); l.start(queue: .main)
         } catch {
             stopListener()
-            failure = "Mobil bağlantı başlatılamadı. Yerel ağ iznini ve \(LiveProtocol.port)–\(LiveProtocol.securePort) portlarını kontrol edin."; onChanged?()
+            failure = "Mobil bağlantı başlatılamadı. Yerel ağ iznini ve \(port) portunu kontrol edin."; onChanged?()
         }
     }
-    private func makeListener(_ parameters: NWParameters, port: UInt16, type: String) throws -> NWListener {
-        let l = try NWListener(using: parameters, on: NWEndpoint.Port(rawValue: port)!)
-        l.service = NWListener.Service(name: macName, type: type)
+    private func configure(_ l: NWListener, port: UInt16) {
         l.stateUpdateHandler = { [weak self, weak l] status in
-            guard let self = self, let l = l, self.listener === l || self.secureListener === l else { return }
+            guard let self = self, let l = l, self.listener === l else { return }
             switch status {
             case .ready:
-                let all = [self.listener, self.secureListener].compactMap { $0 }
-                self.listening = all.allSatisfy { if case .ready = $0.state { return true }; return false }; self.failure = nil
-                logLine("Mobil bağlantı hazır; port \(port)"); self.restartDelay = 2
+                self.listening = true; self.failure = nil; self.readyAt = Date()
+                logLine("Mobil bağlantı hazır; port \(port)")
             case .waiting(let error), .failed(let error):
-                // A network change or sleep can stop a listener; log it and restart instead of going silent.
                 logLine("Mobil bağlantı durdu; port \(port): \(error)")
-                self.stopListener(); self.failure = "Mobil bağlantı yeniden başlatılıyor…"
-                self.scheduleRestart()
+                // Back off from 2 s up to 60 s, unless the listener had stayed up for a while.
+                if let at = self.readyAt, Date().timeIntervalSince(at) > 60 { self.restartDelay = 2 }
+                self.readyAt = nil; self.stopListener()
+                if case .dns(let code) = error, code == -65555 {
+                    // NoAuth: macOS refuses to advertise a Bonjour type missing from Info.plist; retrying cannot help.
+                    self.failure = "macOS Bonjour yayınına izin vermedi. Asistan'ı yeniden derleyin."
+                } else {
+                    // A network change or sleep can stop a listener; restart instead of going silent.
+                    self.failure = "Mobil bağlantı yeniden başlatılıyor…"; self.scheduleRestart()
+                }
             default: break
             }; self.onChanged?()
         }
@@ -159,15 +151,14 @@ final class MobileBridge {
             guard let self = self, self.enabled, self.clients.count < 4 else { connection.cancel(); return }
             let client = MobileClient(connection, bridge: self); self.clients.append(client); client.start()
         }
-        l.start(queue: .main)
-        return l
     }
     private var restartDelay: TimeInterval = 2
+    private var readyAt: Date?
     private var restartWork: DispatchWorkItem?
     private func scheduleRestart() {
         restartWork?.cancel()
         let work = DispatchWorkItem { [weak self] in
-            guard let self = self, self.enabled, self.listener == nil, self.secureListener == nil else { return }
+            guard let self = self, self.enabled, self.listener == nil else { return }
             self.startListener(); self.onChanged?()
         }
         restartWork = work
@@ -176,8 +167,8 @@ final class MobileBridge {
     }
     private func stopListener() {
         restartWork?.cancel(); restartWork = nil
-        for l in [listener, secureListener].compactMap({ $0 }) { l.stateUpdateHandler = nil; l.newConnectionHandler = nil; l.cancel() }
-        listener = nil; secureListener = nil; listening = false
+        if let l = listener { l.stateUpdateHandler = nil; l.newConnectionHandler = nil; l.cancel() }
+        listener = nil; listening = false
         let old = clients; clients.removeAll(); for client in old { client.close() }; onChanged?()
     }
     fileprivate func clientReady(_ client: MobileClient) {

@@ -10,7 +10,6 @@ import Foundation
         check(LiveProtocol.serviceName(host: String(repeating: "🦊", count: 80)).utf8.count <= 63)
         check(LiveProtocol.serviceName(host: "Mehmet").hasSuffix(" — Asistan"))
         check(LiveProtocol.serviceName(host: "") == "Mac — Asistan")
-        check(LiveProtocol.securePort != LiveProtocol.port && LiveProtocol.secureServiceType != LiveProtocol.serviceType)
         check(LiveProtocol.capabilities.contains("pause") && LiveProtocol.capabilities.contains("secure"))
         let key = PairingLink.newKey(); check(key.count == 32 && key != PairingLink.newKey())
         let link = PairingLink(key: key, mac: "Mehmet’in MacBook’u — Asistan", hosts: ["192.168.1.20", "10.0.0.5"])

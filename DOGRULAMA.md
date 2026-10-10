@@ -1,5 +1,13 @@
 # Doğrulama
 
+## 0.8.13
+
+- **Gemini ses sırası:** `test_player_buffers_a_long_reply_sent_faster_than_real_time` (30 sn ses bir anda gelince hata yok); 3.1 ayarı 3.8'e geçer (Python ve Swift).
+- **GPT-Live bağlantısı:** `test_send_is_never_cut_short_or_retried`, `test_full_capture_queue_drops_the_oldest_frame`, `test_resumed_session_transcript_follows_the_old_one`; karşılama hatırlatması 2,6 sn'de gönderilmez.
+- **Mobil:** Ortak protokolde yalnızca QR anahtarı ve 47821 kalır; CI, Bonjour türünün Info.plist'te olduğunu denetler.
+
+Gerçek aramada denenmesi gerekenler: iPhone'un QR ile bağlanması (`app.log`'da yalnızca "Mobil bağlantı hazır; port 47821", tekrarlayan "durdu" yok); Gemini 3.8'de uzun bir yanıtın kesilmeden sonuna kadar okunması; GPT-Live'da bir dakikadan uzun görüşmede `app.log`'da "Connection to remote host was lost" çıkmaması.
+
 ## 0.8.12
 
 - **Döküm ve gürültü:** `is_hallucination` testleri ("Altyazı M.K." elenir, kısa sorular ve gerçek cümleler kalır); döküm satırında saat ve geçen süre; gürültüyle kesilen karşılamanın bir kez yeniden söylenmesi.

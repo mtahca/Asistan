@@ -1,7 +1,8 @@
 // Shared by Asistan (app/MobileProtocol.swift) and Asistan Mobile (AsistanCanli/MobileProtocol.swift).
 // Both copies must stay byte-identical; CI in each repository compares them.
-// v1: 8-digit pairing code on port 47821. v2: random 256-bit key from a QR code on port 47822.
-// An 8-digit code can be guessed offline from one recorded handshake; a 256-bit key cannot.
+// Pairing: a random 256-bit key from the Mac's QR code, TLS-PSK on port 47821 (`_asistan-canli._tcp`).
+// The 8-digit code (guessable offline from one recorded handshake) and the separate port 47822 were removed
+// in Asistan 0.8.13 / Mobile 0.3.2; 47822's Bonjour type was missing from the Mac's Info.plist (NoAuth).
 import Foundation
 import Network
 import Security
@@ -11,8 +12,6 @@ enum LiveProtocol {
     static let serviceType = "_asistan-canli._tcp"
     static let port: UInt16 = 47821
     static let version = 1
-    static let secureServiceType = "_asistan-v2._tcp"
-    static let securePort: UInt16 = 47822
     /// Announced in hello; clients check features here instead of comparing version numbers.
     static let capabilities = ["pause", "quickNotes", "history", "secure"]
     static func serviceName(host: String) -> String {
@@ -21,15 +20,9 @@ enum LiveProtocol {
         while (base + suffix).utf8.count > 63 { base.removeLast() }
         return base + suffix
     }
-    static func tlsOptions(code: String) -> NWProtocolTLS.Options {
-        tlsOptions(psk: Data(HMAC<SHA256>.authenticationCode(for: Data("asistan-canli-v1".utf8), using: SymmetricKey(data: Data(code.utf8)))),
-                   identity: "asistan-canli")
-    }
     static func tlsOptions(key: Data) -> NWProtocolTLS.Options {
-        tlsOptions(psk: Data(HMAC<SHA256>.authenticationCode(for: Data("asistan-canli-v2".utf8), using: SymmetricKey(data: key))),
-                   identity: "asistan-v2")
-    }
-    private static func tlsOptions(psk: Data, identity: String) -> NWProtocolTLS.Options {
+        let psk = Data(HMAC<SHA256>.authenticationCode(for: Data("asistan-canli-v2".utf8), using: SymmetricKey(data: key)))
+        let identity = "asistan-v2"
         let tls = NWProtocolTLS.Options()
         let pskData = psk.withUnsafeBytes { DispatchData(bytes: $0) }
         let identityData = Data(identity.utf8).withUnsafeBytes { DispatchData(bytes: $0) }
@@ -38,9 +31,8 @@ enum LiveProtocol {
             tls_ciphersuite_t(rawValue: UInt16(TLS_PSK_WITH_AES_128_GCM_SHA256))!)
         return tls
     }
-    static func parameters(code: String) -> NWParameters { parameters(tls: tlsOptions(code: code)) }
-    static func parameters(key: Data) -> NWParameters { parameters(tls: tlsOptions(key: key)) }
-    private static func parameters(tls: NWProtocolTLS.Options) -> NWParameters {
+    static func parameters(key: Data) -> NWParameters {
+        let tls = tlsOptions(key: key)
         let tcp = NWProtocolTCP.Options()
         tcp.enableKeepalive = true; tcp.keepaliveIdle = 10; tcp.keepaliveInterval = 5; tcp.keepaliveCount = 3
         let p = NWParameters(tls: tls, tcp: tcp)

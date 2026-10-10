@@ -103,11 +103,11 @@ class LiveTests(unittest.TestCase):
             c.ensure_greeting();c.ensure_greeting()
         self.assertEqual(c.connection.sent,[('session.commentary.append',{'delegation_id':None,'content':'Karşılama'})])
 
-    def test_greeting_nudge_waits_one_second_and_ack_then_runs_once(self):
+    def test_greeting_nudge_waits_for_slow_first_audio_and_ack_then_runs_once(self):
         c=self.call();c.connection=Connection();c.greeting_sent_at=0;c.greeting_ack=True
-        with patch.object(live.time,'monotonic',return_value=0.9):c.ensure_greeting()
+        with patch.object(live.time,'monotonic',return_value=2.6):c.ensure_greeting()  # first audio took 2.52 s in a real call
         self.assertEqual(c.connection.sent,[])
-        with patch.object(live.time,'monotonic',return_value=1.1):c.ensure_greeting();c.ensure_greeting()
+        with patch.object(live.time,'monotonic',return_value=live.GREETING_FALLBACK_S+0.1):c.ensure_greeting();c.ensure_greeting()
         self.assertEqual(len(c.connection.sent),1)
 
     def test_greeting_never_repeats_after_caller_or_assistant_or_stop(self):
@@ -209,15 +209,16 @@ class LiveTests(unittest.TestCase):
         p=live.PCMPlayer(np)
         with self.assertRaises(live.LiveError):p.push(base64.b64encode(b'x').decode())
         with self.assertRaises(live.LiveError):p.push('!invalid!')
-        with self.assertRaises(live.LiveError):p.push(base64.b64encode(bytes(24000*2*4)).decode())
+        p.push(base64.b64encode(bytes(24000*2*4)).decode())  # Live sends replies faster than real time
+        with self.assertRaises(live.LiveError):live.PCMPlayer(np,max_seconds=1).push(base64.b64encode(bytes(24000*2*2)).decode())
 
     def test_capture_stops_immediately_on_takeover(self):
         c=self.call();c.s.stop.set();c.capture(np.ones((720,2)),720,None,None);self.assertTrue(c.audio.empty())
 
-    def test_capture_overflow_reports_failure_instead_of_growing_queue(self):
+    def test_capture_overflow_drops_old_audio_instead_of_growing_queue(self):
         c=self.call()
         for _ in range(26):c.capture(np.zeros((720,2)),720,None,None)
-        self.assertEqual(c.audio.qsize(),25);self.assertFalse(c.errors.empty())
+        self.assertEqual(c.audio.qsize(),25);self.assertTrue(c.errors.empty())
 
     def test_delegate_uses_metadata_only_once(self):
         c=self.call();e={'type':'session.delegation.created','delegation':{'id':'task','target':'client'}}
@@ -471,23 +472,31 @@ class LiveCallIntegrationTests(unittest.TestCase):
             call.s.stop.set();call.close()
         self.assertIn('kota',str(raised.exception))
 
-    def test_send_retries_timeouts_and_drops_audio(self):
-        class TimeoutOnce(Exception):pass
+    def test_send_is_never_cut_short_or_retried(self):
         class WS:
-            def __init__(self):self.calls=0;self.fail=1
+            def __init__(self):self.calls=0;self.timeouts=[]
             def getstatus(self):return 101
-            def settimeout(self,t):pass
+            def settimeout(self,t):self.timeouts.append(t)
             def send(self,payload):
-                self.calls+=1
-                if self.calls<=self.fail:raise TimeoutOnce()
+                self.calls+=1;raise OSError('lost')
             def shutdown(self):pass
-        ws=WS();c=live.LiveConnection('dummy',factory=lambda *a,**k:ws);c.timeout_error=TimeoutOnce
-        self.assertIsNotNone(c.send('session.commentary.append',delegation_id=None,content='x'));self.assertEqual(ws.calls,2)
-        ws.calls=0;self.assertIsNone(c.send('session.input_audio.append',audio='',drop_on_timeout=True));self.assertEqual(ws.calls,1)
-        ws.calls=0;ws.fail=99
+        ws=WS();c=live.LiveConnection('dummy',factory=lambda *a,**k:ws)
+        self.assertEqual(ws.timeouts,[live.SOCKET_TIMEOUT_S]);self.assertGreaterEqual(live.SOCKET_TIMEOUT_S,5)
         import io,contextlib
         with contextlib.redirect_stderr(io.StringIO()):
-            with self.assertRaises(live.LiveError):c.send('session.commentary.append',delegation_id=None,content='x')
-        self.assertEqual(ws.calls,3)
+            with self.assertRaises(live.LiveError):c.send('session.input_audio.append',audio='',drop_on_timeout=True)
+        self.assertEqual(ws.calls,1)
+
+    def test_full_capture_queue_drops_the_oldest_frame(self):
+        q=queue.Queue(maxsize=2)
+        for n in range(4):live.put_latest(q,n)
+        self.assertEqual([q.get_nowait(),q.get_nowait()],[2,3])
+
+    def test_resumed_session_transcript_follows_the_old_one(self):
+        t=live.Transcript()
+        t.add({'type':'session.output_transcript.delta','delta':'Merhaba, Mehmet Bey müsait değil.','start_ms':0,'end_ms':3000})
+        t.new_session()
+        t.add({'type':'session.output_transcript.delta','delta':'Pardon, bağlantı kesildi.','start_ms':0,'end_ms':1500})
+        self.assertEqual([r['text'] for r in t.rows()],['Merhaba, Mehmet Bey müsait değil.','Pardon, bağlantı kesildi.'])
 
 if __name__=='__main__':unittest.main()

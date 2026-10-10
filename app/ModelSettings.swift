@@ -49,8 +49,8 @@ final class ModelSettingsController: NSObject, SettingsPane {
         window.title = "Asistan — Modeller ve API anahtarları"; window.isReleasedWhenClosed = false
         _ = label("Görüşme ve özet için model seçin", y: 664, bold: true, height: 26)
         fieldLabel("Ses modu", y: 618)
-        mode = popup(y: 618, items: [("Yerel ses — mevcut sistem", "local"), ("Çevrimiçi ses — GPT-Live 1", "gpt-live"), ("Çevrimiçi ses — Gemini 3.8 Live", "gemini-live|gemini-3.8-live"),
-                                     ("Çevrimiçi ses — Gemini 3.1 Flash Live (eski önizleme)", "gemini-live|gemini-3.1-flash-live-preview")])
+        mode = popup(y: 618, items: [("Yerel ses — mevcut sistem", "local"), ("Çevrimiçi ses — GPT-Live 1", "gpt-live"),
+                                     ("Çevrimiçi ses — Gemini 3.8 Live", "gemini-live|gemini-3.8-live")])
         mode.target = self; mode.action = #selector(updateMode)
         fieldLabel("Adına konuştuğu kişi", y: 568)
         owner = NSTextField(frame: NSRect(x: 220, y: 568, width: 356, height: 26)); window.contentView!.addSubview(owner)
@@ -102,7 +102,7 @@ final class ModelSettingsController: NSObject, SettingsPane {
         speed.isEnabled = !online; speed.isHidden = online; speedLabel.isHidden = online
         noiseGate.isHidden = !online; speedTitle.stringValue = online ? "Gürültü" : "Konuşma hızı"
         if gemini {
-            speechInfo.stringValue = "Gemini Live dinler ve konuşur; Türkçe resmî olarak destekli. 3.8 Google’ın kararlı modeli, 3.1 eski önizleme. Görüşme modeli gerektiğinde arka planda yanıt verir."
+            speechInfo.stringValue = "Gemini Live dinler ve konuşur; Türkçe resmî olarak destekli. 3.8 Live, Google’ın kararlı modeli. Görüşme modeli gerektiğinde arka planda yanıt verir."
             privacyInfo.stringValue = "Gemini modunda görüşme sesi Google’a gider. Ses yaklaşık $0,02–0,03/dk; arka plan ve özet ayrıca ücretlenir. Gemini anahtarını Google AI Studio’dan alın."
         } else if online {
             speechInfo.stringValue = "GPT-Live 1 dinler ve konuşur; Whisper/EMA kullanılmaz. Ses seçimi yeni görüşmede uygulanır. Görüşme modeli, gerektiğinde arka planda yanıt verir."
