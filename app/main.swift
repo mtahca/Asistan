@@ -103,6 +103,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var recentMenu: NSMenu!
     var ringerName = ""
     var ringDiagnosticSaved = false
+    var lastUnrecognizedWarning = Date.distantPast
     var settingsCache: (modified: Date?, values: [String: String])?
     let routeQueue = DispatchQueue(label: "com.mtahca.asistan.call-route")
     var routeFallback = (UserDefaults.standard.object(forKey: "routeFallbackDefaultInput") as? Bool) ?? true
@@ -634,6 +635,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             showPanel()
             if FocusPolicy.shouldAnswer(manualAuto: autoMode, focusAuto: focusAuto, focused: focusMonitor.active, paused: paused), agentReady, setupStatus().perms, loopbackAudioReady(), callControl(for: .apple) == nil, callControl(for: .whatsapp) == nil { beginAnswer(manual: false) }
         }
+        if !busy, let unknown = CallObserver.shared.unrecognized(), Date().timeIntervalSince(lastUnrecognizedWarning) > 120 {
+            lastUnrecognizedWarning = Date()
+            writeRingDiagnostic(unknown, heading: "Cevaplama düğmesi bulunamadı")
+            callFailure = ("Gelen arama tanınamadı; aramayı elle cevaplayın", Date().addingTimeInterval(60))
+            notify("Gelen arama tanınamadı", "\(unknown.source.rawValue) aramasında cevaplama düğmesi beklenen adla bulunamadı; uygulama güncellenmiş olabilir. Aramayı elle cevaplayın. Ayrıntılar son_arama_tani.txt dosyasında.")
+        }
         if missing >= 2 { hidePanel() }
         if missing > 5 && !busy { answered = false; dismissed = false; bannerTexts = []; ringDiagnosticSaved = false }
         updateStatus()
@@ -646,14 +653,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let info = extractCaller(from: result.texts, source: result.source)
         guard info.name.isEmpty && info.number.isEmpty else { return }
         ringDiagnosticSaved = true
+        writeRingDiagnostic(result, heading: "Arayan bulunamadı")
+    }
+    /// The banner's raw accessibility labels, kept so matching rules can be fixed from real data.
+    func writeRingDiagnostic(_ result: ScanResult, heading: String) {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?"
-        var out = "Arayan bulunamadı — \(Date())\nSürüm: \(version) · Derleme \(build)\nKaynak: \(result.source.rawValue)\n\n"
+        var out = "\(heading) — \(Date())\nSürüm: \(version) · Derleme \(build)\nKaynak: \(result.source.rawValue)\n\n"
         for label in result.texts { out += "\(label.role) \(label.attribute): \(label.value.replacingOccurrences(of: "\n", with: "⏎"))\n" }
         let url = projectDir.appendingPathComponent("son_arama_tani.txt")
         try? out.write(to: url, atomically: true, encoding: .utf8)
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
-        logLine("Arayan bulunamadı; bildirim yapısı kaydedildi: \(url.lastPathComponent)")
+        logLine("\(heading); bildirim yapısı kaydedildi: \(url.lastPathComponent)")
     }
 
     /// Bildirimdeki "cevapla" düğmesine basar

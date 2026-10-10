@@ -18,6 +18,14 @@ enum CallUI {
     static func answer(_ text: String) -> Bool {
         ["answer", "accept", "accept call", "answer call", "kabul", "kabul et", "yanıtla", "yanitla", "cevapla", "aramayı cevapla", "aramayı yanıtla", "accept_call", "answer_call", "callui_acceptbutton"].contains(normalized(text))
     }
+    /// Accessibility identifiers do not change with the system language or button wording;
+    /// a button matched this way wins over one matched only by its visible text.
+    static func answerIdentifier(_ text: String) -> Bool {
+        ["accept_call", "answer_call", "callui_acceptbutton"].contains(normalized(text))
+    }
+    static func endIdentifier(_ text: String) -> Bool {
+        ["end_call", "hang_up", "callui_endbutton"].contains(normalized(text))
+    }
     static func decline(_ text: String) -> Bool {
         ["decline", "reject", "decline call", "reddet", "aramayı reddet", "decline_call", "callui_declinebutton"].contains(normalized(text))
     }

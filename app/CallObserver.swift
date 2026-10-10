@@ -46,6 +46,8 @@ struct ScanResult {
     var groupFrame: CGRect?
     var source: CallSource = .apple
     var texts: [CallerLabel] = []
+    /// A decline control was visible but no answer control matched: the call app probably renamed its buttons.
+    var unrecognized = false
 }
 
 /// Only call-owned windows and notification subtrees may expose an answer button.
@@ -53,6 +55,7 @@ func scanCallRoot(_ root: AXUIElement, source: CallSource) -> ScanResult {
     var result = ScanResult(); result.source = source
     var texts: [String] = [], hasDecline = false
     var endCandidate: (AXUIElement, [String])?
+    var answerByID: AXUIElement?, endByID: (AXUIElement, [String])?
     walk(root) { el, depth in
         let values = labels(el)
         texts += values
@@ -64,6 +67,9 @@ func scanCallRoot(_ root: AXUIElement, source: CallSource) -> ScanResult {
         }
         if str(el, kAXRoleAttribute as String) == "AXButton" {
             if values.contains(where: CallUI.decline) { hasDecline = true }
+            let identifier = str(el, kAXIdentifierAttribute as String)
+            if answerByID == nil, CallUI.answerIdentifier(identifier) { answerByID = el }
+            if endByID == nil, CallUI.endIdentifier(identifier) { endByID = (el, values) }
             if endCandidate == nil, str(el, kAXSubroleAttribute as String) != "AXCloseButton",
                values.contains(where: CallUI.end) { endCandidate = (el, values) }
             if result.button == nil && values.contains(where: CallUI.answer) { result.button = el }
@@ -72,7 +78,10 @@ func scanCallRoot(_ root: AXUIElement, source: CallSource) -> ScanResult {
             result.button = el; result.action = action
         }
     }
+    if let byID = answerByID { result.button = byID; result.action = kAXPressAction as String }
+    if let byID = endByID { endCandidate = byID }
     let hasAnswer = result.button != nil
+    result.unrecognized = hasDecline && !hasAnswer && !CallUI.videoCall(texts)
     if let candidate = endCandidate,
        CallUI.connectedEndControl(candidate.1, rootHasAnswer: hasAnswer, rootHasDecline: hasDecline) {
         result.endButton = candidate.0
@@ -105,7 +114,7 @@ func appWindows(for source: CallSource) -> [AXUIElement] {
     }
 }
 
-// Accessibility calls can wait on another application. Poll on one worker;
+// Accessibility calls can wait on another application. Scan on one worker;
 // the main thread only consumes the last complete observation.
 final class CallObserver {
     static let shared = CallObserver()
@@ -114,22 +123,63 @@ final class CallObserver {
     private var incoming = ScanResult()
     private var controls: [CallSource: AXUIElement] = [:]
     private var connectedCallers: [CallSource: CallerInfo] = [:]
+    private var unrecognizedCall: ScanResult?
     private var updated = Date.distantPast
     private var started = false
+    private var pending: DispatchWorkItem?
+    private var lastPoll = Date.distantPast
+    // Window and element events from the call apps trigger an immediate scan; polling stays as the fallback.
+    private var observers: [pid_t: AXObserver] = [:]
+    static let watchedApps = ["com.apple.notificationcenterui"] + CallSource.apple.bundleIDs + CallSource.whatsapp.bundleIDs
     /// While an answered call is being confirmed, poll faster so the session starts sooner.
     var urgent = false
     func start() {
         guard !started else { return }; started = true
         queue.async { self.poll() }
     }
+    /// Called on the main thread by an accessibility event; scans soon, at most every 0.15 s.
+    fileprivate func trigger() {
+        queue.async {
+            let wait = max(0, 0.15 - Date().timeIntervalSince(self.lastPoll))
+            self.schedule(after: wait)
+        }
+    }
+    private func schedule(after delay: TimeInterval) {
+        pending?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.poll() }
+        pending = work
+        queue.asyncAfter(deadline: .now() + delay, execute: work)
+    }
+    private func watchApps() {
+        let running = Self.watchedApps.compactMap { NSRunningApplication.runningApplications(withBundleIdentifier: $0).first?.processIdentifier }
+        for pid in observers.keys where !running.contains(pid) {
+            if let observer = observers.removeValue(forKey: pid) {
+                CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .defaultMode)
+            }
+        }
+        for pid in running where observers[pid] == nil {
+            var created: AXObserver?
+            guard AXObserverCreate(pid, { _, _, _, _ in CallObserver.shared.trigger() }, &created) == .success, let observer = created else { continue }
+            let application = AXUIElementCreateApplication(pid)
+            AXUIElementSetMessagingTimeout(application, 0.3)
+            for name in [kAXWindowCreatedNotification, kAXUIElementDestroyedNotification, kAXCreatedNotification, kAXFocusedWindowChangedNotification] {
+                _ = AXObserverAddNotification(observer, application, name as CFString, nil)
+            }
+            CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .defaultMode)
+            observers[pid] = observer
+        }
+    }
     private func poll() {
-        var found = ScanResult(), endings: [CallSource: AXUIElement] = [:]
+        lastPoll = Date()
+        if AXIsProcessTrusted() { watchApps() }
+        var found = ScanResult(), endings: [CallSource: AXUIElement] = [:], unknown: ScanResult?
         var callers: [CallSource: CallerInfo] = [:]
         if AXIsProcessTrusted() {
             for source in [CallSource.apple, .whatsapp] {
                 for root in notificationRoots(for: source) + appWindows(for: source) {
                     let result = scanCallRoot(root, source: source)
                     if found.button == nil && result.button != nil { found = result }
+                    if unknown == nil && result.unrecognized { unknown = result }
                     if endings[source] == nil, let end = result.endButton { endings[source] = end }
                     if result.endButton != nil {
                         let caller = extractCaller(from: result.texts, source: source)
@@ -140,8 +190,9 @@ final class CallObserver {
                 }
             }
         }
-        lock.lock(); incoming = found; controls = endings; connectedCallers = callers; updated = Date(); lock.unlock()
-        queue.asyncAfter(deadline: .now() + (urgent ? 0.2 : 0.6)) { self.poll() }
+        lock.lock(); incoming = found; controls = endings; connectedCallers = callers
+        unrecognizedCall = found.button == nil ? unknown : nil; updated = Date(); lock.unlock()
+        schedule(after: urgent ? 0.2 : 0.6)
     }
     func result() -> ScanResult {
         lock.lock(); defer { lock.unlock() }
@@ -150,6 +201,11 @@ final class CallObserver {
     func control(_ source: CallSource) -> AXUIElement? {
         lock.lock(); defer { lock.unlock() }
         return Date().timeIntervalSince(updated) < 5 ? controls[source] : nil
+    }
+    /// An incoming call whose answer control could not be matched, if one is showing.
+    func unrecognized() -> ScanResult? {
+        lock.lock(); defer { lock.unlock() }
+        return Date().timeIntervalSince(updated) < 5 ? unrecognizedCall : nil
     }
     func connectedCaller(_ source: CallSource) -> CallerInfo {
         lock.lock(); defer { lock.unlock() }
