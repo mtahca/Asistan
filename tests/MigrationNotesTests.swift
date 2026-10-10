@@ -61,6 +61,13 @@ import Foundation
         let recent = RecentNotes.list(in: notes, limit: 2)
         check(recent.map(\.title) == ["09.10 10:30 · Ayşe", "08.10 09:00 · Ali"])
         check(RecentNotes.list(in: home.appendingPathComponent("yok")).isEmpty)
+        let missing = home.appendingPathComponent("yok/notlar")
+        check(RecentNotes.isNote(path: notes.path + "/a.md", in: notes))
+        check(RecentNotes.isNote(path: missing.path + "/a.md", in: missing))
+        check(RecentNotes.isNote(path: notes.path + "/../notlar/a.md", in: notes))
+        check(!RecentNotes.isNote(path: notes.path + "/a.txt", in: notes))
+        check(!RecentNotes.isNote(path: notes.path + "/alt/a.md", in: notes))
+        check(!RecentNotes.isNote(path: notes.path + "/../a.md", in: notes))
         print("Geçiş ve son notlar: \(count) kontrol başarılı.")
     }
 }

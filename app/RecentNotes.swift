@@ -15,6 +15,13 @@ enum RecentNotes {
             .map { RecentNote(url: $0, title: title(fileName: $0.lastPathComponent, header: header(of: $0))) }
     }
 
+    /// A note path from the agent must be a .md file directly inside the notes folder. Paths are
+    /// compared, not URLs: a folder URL ends in "/" only when it existed at creation time.
+    static func isNote(path: String, in folder: URL) -> Bool {
+        let url = URL(fileURLWithPath: path).standardizedFileURL
+        return url.pathExtension == "md" && url.deletingLastPathComponent().path == folder.standardizedFileURL.path
+    }
+
     /// The caller line sits near the top; notes may be long, so read only the beginning.
     static func header(of url: URL) -> String {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return "" }
