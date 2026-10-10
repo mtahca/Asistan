@@ -595,5 +595,10 @@ class BetaTests(unittest.TestCase):
         self.assertEqual(len(spoken), 3)  # greeting, repeated greeting, goodbye after silence
         self.assertFalse(any('Altyazı' in line for line in s.transcript))
 
+    def test_caller_line_accepts_time_stamped_lines(self):
+        self.assertTrue(beta.caller_line('[20:48:06 +00:01] Arayan: Merhaba.'))
+        self.assertTrue(beta.caller_line('Arayan: Merhaba.'))
+        self.assertFalse(beta.caller_line('[20:48:06 +00:01] Asistan: Merhaba.'))
+
 if __name__ == '__main__':
     unittest.main()
