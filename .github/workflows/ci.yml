@@ -8,6 +8,9 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+      # The Apple speech helper needs the macOS 26 SDK (Speech: DictationTranscriber).
+      - name: En yeni Xcode
+        run: sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)" && xcodebuild -version
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"

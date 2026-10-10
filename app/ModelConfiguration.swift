@@ -38,19 +38,52 @@ struct BetaModelConfiguration {
         return voice
     }
 
+    // Gemini Live prebuilt voices. Keep gemini_live.py in sync.
+    static let geminiVoices: [String] = ["Kore", "Aoede", "Leda", "Zephyr", "Puck", "Charon", "Fenrir", "Orus", "Callirrhoe", "Autonoe", "Enceladus", "Iapetus", "Umbriel", "Algieba", "Despina", "Erinome", "Algenib", "Rasalgethi", "Laomedeia", "Achernar", "Alnilam", "Schedar", "Gacrux", "Pulcherrima", "Achird", "Zubenelgenubi", "Vindemiatrix", "Sadachbia", "Sadaltager", "Sulafat"]
+    static func geminiVoice(in values: [String: String]) throws -> String {
+        let voice = values["GEMINI_LIVE_VOICE"].flatMap { $0.isEmpty ? nil : $0 } ?? "Kore"
+        guard geminiVoices.contains(voice) else { throw invalid("Gemini sesi geçersiz. Ayarlardan desteklenen bir ses seçin.") }
+        return voice
+    }
+    /// gemini-3.8-live is Google's stable Live model; 3.1 Flash Live is the older preview the user asked for.
+    static let geminiModels: [(title: String, model: String)] = [("Gemini 3.8 Live", "gemini-3.8-live"), ("Gemini 3.1 Flash Live", "gemini-3.1-flash-live-preview")]
+    static func geminiModel(in values: [String: String]) throws -> String {
+        let model = values["GEMINI_LIVE_MODEL"].flatMap { $0.isEmpty ? nil : $0 } ?? "gemini-3.8-live"
+        guard geminiModels.contains(where: { $0.model == model }) else { throw invalid("Gemini modeli geçersiz.") }
+        return model
+    }
+    static func geminiModelTitle(in values: [String: String]) -> String {
+        let model = (try? geminiModel(in: values)) ?? "gemini-3.8-live"
+        return geminiModels.first { $0.model == model }?.title ?? model
+    }
+    static let voiceModes = ["local", "gpt-live", "gemini-live"]
     static func voiceMode(in values: [String: String]) throws -> String {
         let mode = values["VOICE_MODE"].flatMap { $0.isEmpty ? nil : $0 } ?? "local"
-        guard ["local", "gpt-live"].contains(mode) else { throw invalid("Ses modu geçersiz.") }
+        guard voiceModes.contains(mode) else { throw invalid("Ses modu geçersiz.") }
         return mode
+    }
+    /// Speech-to-text in local mode: "mlx" and "faster" run Whisper, "deepgram" is Deepgram Nova-3, "apple" is macOS dictation.
+    static let speechBackends = ["mlx", "faster", "deepgram", "apple"]
+    static func speechBackend(in values: [String: String]) throws -> String {
+        let backend = values["STT_BACKEND"].flatMap { $0.isEmpty ? nil : $0 } ?? "mlx"
+        guard speechBackends.contains(backend) else { throw invalid("Konuşma tanıma seçimi geçersiz.") }
+        return backend
+    }
+    static func providerTitle(_ provider: String) -> String {
+        ["openai": "OpenAI", "anthropic": "Anthropic", "deepgram": "Deepgram", "google": "Google Gemini"][provider] ?? provider
     }
     static func requiredProviders(in values: [String: String]) throws -> [String] {
         let selected = try choices(in: values)
         var providers = Set([selected.conversation.provider, selected.summary.provider])
-        if try voiceMode(in: values) == "gpt-live" { _ = try liveVoice(in: values); providers.insert("openai") }
+        switch try voiceMode(in: values) {
+        case "gpt-live": _ = try liveVoice(in: values); providers.insert("openai")
+        case "gemini-live": _ = try geminiVoice(in: values); _ = try geminiModel(in: values); providers.insert("google")
+        default: if try speechBackend(in: values) == "deepgram" { providers.insert("deepgram") }
+        }
         return providers.sorted()
     }
-    static let editableKeys: Set<String> = ["VOICE_MODE", "GPT_LIVE_VOICE", "OWNER_NAME", "LLM_PROVIDER", "CLAUDE_MODEL", "OPENAI_MODEL", "SUMMARY_PROVIDER", "SUMMARY_MODEL", "WHISPER_MODEL", "STT_BACKEND", "TTS_SPEED", "LIVE_NOISE_GATE"]
-    static let credentialKeys = ["anthropic": "ANTHROPIC_API_KEY", "openai": "OPENAI_API_KEY"]
+    static let editableKeys: Set<String> = ["VOICE_MODE", "GPT_LIVE_VOICE", "GEMINI_LIVE_VOICE", "GEMINI_LIVE_MODEL", "OWNER_NAME", "LLM_PROVIDER", "CLAUDE_MODEL", "OPENAI_MODEL", "SUMMARY_PROVIDER", "SUMMARY_MODEL", "WHISPER_MODEL", "STT_BACKEND", "TTS_SPEED", "LIVE_NOISE_GATE"]
+    static let credentialKeys = ["anthropic": "ANTHROPIC_API_KEY", "openai": "OPENAI_API_KEY", "deepgram": "DEEPGRAM_API_KEY", "google": "GEMINI_API_KEY"]
     static func invalid(_ text: String) -> NSError {
         NSError(domain: "Asistan", code: 1, userInfo: [NSLocalizedDescriptionKey: text])
     }
@@ -95,6 +128,10 @@ struct BetaModelConfiguration {
             throw NSError(domain: "Asistan", code: 1, userInfo: [NSLocalizedDescriptionKey: "Geçersiz model ayarı."])
         }
         if let voice = changes["GPT_LIVE_VOICE"] { _ = try liveVoice(in: ["GPT_LIVE_VOICE": voice]) }
+        if let voice = changes["GEMINI_LIVE_VOICE"] { _ = try geminiVoice(in: ["GEMINI_LIVE_VOICE": voice]) }
+        if let model = changes["GEMINI_LIVE_MODEL"] { _ = try geminiModel(in: ["GEMINI_LIVE_MODEL": model]) }
+        if let mode = changes["VOICE_MODE"] { _ = try voiceMode(in: ["VOICE_MODE": mode]) }
+        if let backend = changes["STT_BACKEND"] { _ = try speechBackend(in: ["STT_BACKEND": backend]) }
         return replace(text, with: changes)
     }
     private static func replace(_ text: String, with changes: [String: String]) -> String {

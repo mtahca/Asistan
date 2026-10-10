@@ -15,15 +15,17 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.8.11</string>
+	<string>0.8.12</string>
 	<key>CFBundleVersion</key>
-	<string>31</string>
+	<string>32</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>14.2</string>
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSContactsUsageDescription</key>
 	<string>Asistan, arayan ekranındaki numaraya ait kişiyi isteğe bağlı olarak bulur.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Apple konuşma tanıma seçildiğinde arayanın sözlerini bu Mac'te Türkçe yazıya çevirmek için.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Asistan, seçtiğiniz aramanın sesini metne dönüştürür.</string>
 	<key>NSLocalNetworkUsageDescription</key>

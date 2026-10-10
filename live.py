@@ -38,7 +38,7 @@ def voice_name(values):
 
 def voice_mode(values):
     mode = values.get('VOICE_MODE', '').strip() or 'local'
-    if mode not in ('local', 'gpt-live'):
+    if mode not in ('local', 'gpt-live', 'gemini-live'):
         raise ValueError('Ses modu geçersiz. Model ayarlarını yeniden kaydedin.')
     return mode
 
@@ -46,6 +46,11 @@ def voice_mode(values):
 def require_live_key(values):
     if voice_mode(values) == 'gpt-live' and not values.get('OPENAI_API_KEY', '').strip():
         raise LiveError('GPT-Live için OpenAI API anahtarı girin.')
+
+
+def lower_tr(text):
+    """str.lower() turns "İ" into "i" plus a combining dot, so "İyi günler" would not match."""
+    return text.replace('İ', 'i').replace('I', 'ı').lower()
 
 
 def context_chunks(text, max_bytes=450):
@@ -393,7 +398,7 @@ class LiveCall:
                 self.last_input=time.monotonic(); self.ending=False;self.input_revision+=1
             elif self.ending:
                 self.ending_text+=event.get('delta','')
-                if any(x in self.ending_text.lower() for x in ('hoşça','hoşçakal','iyi günler','görüşmek','güle güle')):
+                if any(x in lower_tr(self.ending_text) for x in ('hoşça','hoşçakal','iyi günler','görüşmek','güle güle')):
                     self.ending_spoken=True
         elif kind=='session.delegation.created':
             delegation=event.get('delegation') or {}
@@ -418,9 +423,9 @@ class LiveCall:
         if self.ending: return
         rows=self.transcript.rows()
         if not rows or rows[-1]['speaker']=='Arayan': return
-        assistant=rows[-1]['text'].lower()[-200:]
+        assistant=lower_tr(rows[-1]['text'])[-200:]
         if not any(f in assistant for f in self.FAREWELLS): return
-        caller=next((r['text'].lower()[-200:] for r in reversed(rows) if r['speaker']=='Arayan'),'')
+        caller=next((lower_tr(r['text'])[-200:] for r in reversed(rows) if r['speaker']=='Arayan'),'')
         if not any(f in caller for f in self.FAREWELLS): return
         self.ending=True; self.ending_spoken=True; self.ending_text=''; self.end_requested=time.monotonic()
         self.agent.emit('live_status',self.s.id,text='Karşılıklı vedalaşma algılandı; görüşme kapanıyor.')

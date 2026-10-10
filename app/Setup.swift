@@ -109,16 +109,19 @@ final class SetupController: NSObject, NSWindowDelegate, SettingsPane {
         else { labels["detail"]?.stringValue = ready ? "Arama karşılamaya hazır. Model bağlantısını aşağıdan ayrıca sınayabilirsiniz." : (!status.perms ? "Erişilebilirlik ve mikrofon izinlerini tamamlayın. İşaretler çalışan uygulamanın kullandığı izni gösterir." : (!status.audio ? "Eksik Loopback aygıtlarını Ses ayarları bölümünden kontrol edin." : (!status.py ? "Önce yerel konuşma ortamını kurun." : (!status.key ? "Seçili modellerin anahtarlarını Modeller ve API anahtarları bölümünden girin." : (app.agentFailure ?? app.preparationText))))) }
         func mark(_ good: Bool) -> String { good ? "✓ " : "○ " }
         labels["audio"]?.stringValue = mark(namedAudioDevice(BetaAudio.listenName, input: true) != nil) + "Asistan Dinleme\n" + mark(namedAudioDevice(BetaAudio.playbackName, input: false) != nil) + "Asistan Ses Çıkışı\n" + mark(namedAudioDevice(BetaAudio.microphoneName, input: true) != nil) + "Asistan Mikrofonu"
-        let online = (try? BetaModelConfiguration.voiceMode(in: values)) == "gpt-live"
-        let localModelState = online ? "GPT-Live · yerel ses modeli gerekmez" : (app.localModelsReady ? "✓ Whisper ve Türkçe ses sınandı" : (app.agent?.isRunning == true && app.agentFailure == nil ? "… Yerel modeller hazırlanıyor" : "○ Modeller başlatıldığında sınanır"))
+        let voiceMode = (try? BetaModelConfiguration.voiceMode(in: values)) ?? "local"
+        let online = voiceMode != "local", gemini = voiceMode == "gemini-live"
+        let localModelState = online ? (gemini ? "Gemini Live" : "GPT-Live") + " · yerel ses modeli gerekmez" : (app.localModelsReady ? "✓ Konuşma tanıma ve Türkçe ses sınandı" : (app.agent?.isRunning == true && app.agentFailure == nil ? "… Yerel modeller hazırlanıyor" : "○ Modeller başlatıldığında sınanır"))
         labels["py"]?.stringValue = mark(status.py) + (online ? "Ses bağlantısı ortamı\n" : "Yerel konuşma ortamı\n") + localModelState
         do {
             let choices = try BetaModelConfiguration.choices(in: values)
-            labels["models"]?.stringValue = (online ? "Ses: GPT-Live 1 (" + (try BetaModelConfiguration.liveVoice(in: values)).capitalized + ") · Arka plan: " : "Görüşme: ") + choices.conversation.display + "\nÖzet: " + choices.summary.display
+            let voice = gemini ? "Ses: " + BetaModelConfiguration.geminiModelTitle(in: values) + " (" + (try BetaModelConfiguration.geminiVoice(in: values)) + ") · Arka plan: "
+                : (online ? "Ses: GPT-Live 1 (" + (try BetaModelConfiguration.liveVoice(in: values)).capitalized + ") · Arka plan: " : "Görüşme: ")
+            labels["models"]?.stringValue = voice + choices.conversation.display + "\nÖzet: " + choices.summary.display
             let providers = try BetaModelConfiguration.requiredProviders(in: values)
             labels["keys"]?.stringValue = providers.map { provider in
                 let exists = (values[BetaModelConfiguration.credentialKeys[provider]!]?.count ?? 0) > 20
-                return (provider == "openai" ? "OpenAI" : "Anthropic") + ": " + (exists ? "anahtar kayıtlı" : "anahtar eksik")
+                return BetaModelConfiguration.providerTitle(provider) + ": " + (exists ? "anahtar kayıtlı" : "anahtar eksik")
             }.joined(separator: " · ") + "\nHesap ve model erişimi bağlantı testiyle doğrulanır."
         } catch { labels["models"]?.stringValue = error.localizedDescription; labels["keys"]?.stringValue = "Model ayarlarını yeniden kaydedin." }
         let ax = AXIsProcessTrusted(), mic = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
