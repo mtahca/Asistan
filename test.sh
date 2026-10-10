@@ -27,4 +27,4 @@ swiftc -module-cache-path "$TEST_BUILD/cache" app/AnswerMode.swift tests/AnswerM
 "$TEST_BUILD/answer-mode-tests"
 swiftc -module-cache-path "$TEST_BUILD/cache" app/MenuRoute.swift tests/MenuRouteTests.swift -o "$TEST_BUILD/menu-route-tests"
 "$TEST_BUILD/menu-route-tests"
-for script in build.sh setup.sh test.sh make_cert.sh paketle.sh; do bash -n "$script"; done
+for script in build.sh setup.sh test.sh make_cert.sh paketle.sh audio/build_driver.sh; do bash -n "$script"; done

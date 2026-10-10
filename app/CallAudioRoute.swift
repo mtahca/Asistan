@@ -22,7 +22,7 @@ struct RouteReport {
     }
 }
 
-/// Makes call apps send Asistan's voice: picks Asistan Mikrofonu in their own menus, verifies with
+/// Makes call apps send Asistan's voice: picks Asistan Sanal Mikrofon in their own menus, verifies with
 /// Core Audio which processes record from it and, as a last resort, makes it the system input
 /// for the call. Everything here blocks on other apps; call it from a background queue only.
 enum CallAudioRoute {

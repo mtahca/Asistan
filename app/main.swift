@@ -1,5 +1,5 @@
 // Asistan — menü çubuğu uygulaması
-// FaceTime/Telefon ve WhatsApp sesli aramalarını Loopback üzerinden karşılar.
+// FaceTime/Telefon ve WhatsApp sesli aramalarını Asistan ses sürücüsü ve sistem sesi kaydıyla karşılar.
 // Ses aygıtları kalıcıdır; arama başında, sonunda veya devralmada değiştirilmez.
 
 import Cocoa
@@ -158,6 +158,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         installDefaultListeners()
         if CallAudioRoute.restoreDefaultInput() { logLine("Önceki görüşmeden kalan sistem mikrofonu geri alındı") }
+        // Ajan aygıtları açılışta listelediği için Asistan Dinleme ajandan önce hazır olmalı.
+        if !ListenTap.shared.start() { logLine("Asistan Dinleme açılamadı: \(ListenTap.shared.failure ?? "?")") }
 
         let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
         if !AXIsProcessTrustedWithOptions(opts) {
@@ -220,6 +222,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationWillTerminate(_ n: Notification) {
         CallAudioRoute.restoreDefaultInput()  // not on routeQueue: it may be waiting for the main thread
+        ListenTap.shared.stop()
         mobile.shutdown()
         setupController?.stopAPICheck()
         sendCommand(["command": "shutdown"])
@@ -236,7 +239,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         try? FileManager.default.createDirectory(at: projectDir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
     }
 
-    /// Kurulum durumu: (Loopback, Python ortamı, API anahtarı, izinler)
+    /// Kurulum durumu: (ses aygıtları, Python ortamı, API anahtarı, izinler)
     func setupStatus() -> (audio: Bool, py: Bool, key: Bool, perms: Bool) {
         let audio = loopbackAudioReady()
         let fm = FileManager.default
@@ -365,7 +368,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             if let failure = agentFailure { text = "Asistan hazırlanamadı: " + failure }
             else if !setup.py { text = "Yerel konuşma ortamının kurulumu gerekiyor" }
             else if !setup.key { text = "Seçili modellerin API ayarları eksik" }
-            else if !setup.audio { text = "Loopback ses aygıtları eksik" }
+            else if !setup.audio { text = "Asistan ses aygıtları eksik" }
             else { text = "Asistan çalışmıyor — yeniden başlatılabilir" }
         }
         else if humanCallActive { text = "Görüşmeyi siz devraldınız" }
@@ -375,7 +378,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         else if !accessibility { text = "Erişilebilirlik izni kullanılamıyor" }
         else if !microphone { text = "Mikrofon izni bekleniyor" }
         else if let failure = callFailure, Date() < failure.expires { text = failure.text }
-        else if !loopbackAudioReady() { text = "Loopback ses aygıtları hazır değil" }
+        else if !loopbackAudioReady() { text = "Asistan ses aygıtları hazır değil" }
         else if !agentReady { text = "Asistan hazırlanıyor…" }
         else if FocusPolicy.shouldAnswer(manualAuto: autoMode, focusAuto: focusAuto, focused: focusMonitor.active, paused: paused) {
             text = autoMode ? "Asistan hazır · otomatik cevaplama açık" : "Asistan hazır · Odak için otomatik cevaplama açık"
@@ -486,6 +489,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc func openRecentNote(_ sender: NSMenuItem) { if let url = sender.representedObject as? URL { openInTextEdit(url) } }
     @objc func openNotesFolder() { NSWorkspace.shared.open(projectDir.appendingPathComponent("notlar")) }
     @objc func openLogFile() { openInTextEdit(projectDir.appendingPathComponent("app.log")) }
+    /// Core Audio yeniden başladığında (sürücü kurulumu) yakalama aygıtı ve ajanın aygıt listesi
+    /// geçersiz kalır: ikisini de yeniden kur.
+    func audioSystemRestarted(_ done: @escaping () -> Void) {
+        ListenTap.shared.stop()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+            if !ListenTap.shared.start() { logLine("Asistan Dinleme açılamadı: \(ListenTap.shared.failure ?? "?")") }
+            if self?.setupStatus().audio == true { self?.restartAgent() }
+            self?.updateStatus(); done()
+        }
+    }
     @objc func restartAgent() {
         agentGeneration = UUID()
         sendCommand(["command": "shutdown"])
@@ -515,7 +528,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
 
 
-    /// Görüşmeyi devral: asistan susar; fiziksel mikrofon sabit Loopback hattına aktarılır.
+    /// Görüşmeyi devral: asistan susar; fiziksel mikrofon sabit ses hattına aktarılır.
     var tookOver = false
     var callGoneTicks = 0
 
@@ -581,7 +594,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if !uid.isEmpty {
             // An unplugged choice must not silently record a different microphone.
             guard let device = deviceID(forUID: uid), hasStreams(device, input: true),
-                  transportType(device) != kAudioDeviceTransportTypeVirtual else { return "" }
+                  transportType(device) != kAudioDeviceTransportTypeVirtual, !isAssistantDevice(device) else { return "" }
             return deviceName(device)
         }
         return builtinDevice(input: true).map(deviceName) ?? ""
@@ -599,7 +612,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 let outline = CallAudioRoute.describeMenus(bundleID: target.bundleID)
                 if !outline.isEmpty { menus += "\n-- \(target.name) (\(target.bundleID))\n" + outline }
             }
-            menus += "\nAsistan Mikrofonu’nu kullanan: " + (CallAudioRoute.microphoneUsers().map { $0.isEmpty ? "kimse" : $0.joined(separator: ", ") } ?? "macOS bildirmedi") + "\n"
+            menus += "\nAsistan Sanal Mikrofon’u kullanan: " + (CallAudioRoute.microphoneUsers().map { $0.isEmpty ? "kimse" : $0.joined(separator: ", ") } ?? "macOS bildirmedi") + "\n"
             if let handle = try? FileHandle(forWritingTo: u) { handle.seekToEndOfFile(); handle.write(Data(menus.utf8)); try? handle.close() }
             logLine("Tanı yazıldı: \(u.path)")
         }
@@ -707,7 +720,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         let incoming = scanNotifications()
         guard incoming.button != nil else { reportCallFailure("Gelen aramanın cevaplama düğmesine şu anda ulaşılamıyor."); return }
-        guard loopbackAudioReady() else { reportCallFailure("Loopback’te Asistan Dinleme, Asistan Ses Çıkışı ve Asistan Mikrofonu aygıtlarını açık tutun."); return }
+        guard loopbackAudioReady() else { reportCallFailure("Asistan ses aygıtları hazır değil. Ses ayarlarından sürücüyü kurun; Loopback’te aynı adlı Asistan Dinleme aygıtı varsa kapatın."); return }
         guard callControl(for: .apple) == nil, callControl(for: .whatsapp) == nil else {
             reportCallFailure("Başka bir görüşme açık. Aynı anda bir görüşme karşılanabilir."); return
         }
@@ -780,7 +793,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 self.notify("Asistan ses ajanı durdu", "Kurulum veya izinleri kontrol edip yeniden başlatabilirsiniz.")
             }
         }
-        do { try p.run(); agent = p; agentReady = false }
+        do { try p.run(); agent = p; agentReady = false; ListenTap.shared.exclude(agent: p.processIdentifier) }
         catch {
             agentFailure = error.localizedDescription
             logLine("Ses ajanı başlatılamadı: " + error.localizedDescription)
@@ -911,7 +924,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self.notify("Asistan oturumu başlamadı", "Aramayı arama uygulamasından devralabilirsiniz.")
         }
     }
-    /// After the call connects: make the call app use Asistan Mikrofonu and confirm that it records from it.
+    /// After the call connects: make the call app use Asistan Sanal Mikrofon and confirm that it records from it.
     /// The menu choice is retried because a call app launched by the call needs a few seconds to build its menus.
     func secureCallRoute(sid: String, source: CallSource) {
         let apps = CallAudioRoute.apps.filter { source.bundleIDs.contains($0.bundleID) }
@@ -927,27 +940,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 let users = CallAudioRoute.microphoneUsers()
                 let summary = reports.map { $0.summary }.joined(separator: "; ")
                 let usage = users.map { $0.isEmpty ? "kimse" : $0.joined(separator: ", ") } ?? "macOS bildirmedi"
-                DispatchQueue.main.async { logLine("Ses hattı denetimi \(attempt): \(summary) | Asistan Mikrofonu’nu kullanan: \(usage)") }
+                DispatchQueue.main.async { logLine("Ses hattı denetimi \(attempt): \(summary) | Asistan Sanal Mikrofon’u kullanan: \(usage)") }
                 if let users = users, !users.isEmpty {
-                    DispatchQueue.main.async { logLine("Ses hattı doğrulandı" + (switched ? " (sistem mikrofonu geçici olarak Asistan Mikrofonu)" : "")) }
+                    DispatchQueue.main.async { logLine("Ses hattı doğrulandı" + (switched ? " (sistem mikrofonu geçici olarak Asistan Sanal Mikrofon)" : "")) }
                     return
                 }
-                // A fresh read showing Asistan Mikrofonu checked is enough when macOS cannot name the recorder.
+                // A fresh read showing Asistan Sanal Mikrofon checked is enough when macOS cannot name the recorder.
                 if reports.contains(where: { $0.plan?.inputReady == true }) {
                     DispatchQueue.main.async { logLine("Ses hattı menüde doğru; macOS kullanımı ayrıca doğrulayamadı") }
                     return
                 }
                 if attempt == 3, fallback, !switched, current() {
                     switched = CallAudioRoute.useMicrophoneAsDefaultInput()
-                    DispatchQueue.main.async { logLine("Sistem mikrofonu görüşme süresince Asistan Mikrofonu yapıldı: \(switched)") }
+                    DispatchQueue.main.async { logLine("Sistem mikrofonu görüşme süresince Asistan Sanal Mikrofon yapıldı: \(switched)") }
                 }
             }
             guard current() else { return }
             DispatchQueue.main.async {
                 guard let self = self, self.sessionID == sid else { return }
-                let text = "⚠️ Arayan asistanı duymuyor olabilir: arama uygulaması Asistan Mikrofonu’nu kullanmıyor. Uygulamanın Ses/Video/Arama menüsünden mikrofonu Asistan Mikrofonu seçin ya da Devral’a basın."
+                let text = "⚠️ Arayan asistanı duymuyor olabilir: arama uygulaması Asistan Sanal Mikrofon’u kullanmıyor. Uygulamanın Ses/Video/Arama menüsünden mikrofonu Asistan Sanal Mikrofon seçin ya da Devral’a basın."
                 self.appendLiveNote(text)
-                self.notify("Asistanın sesi arayana gitmiyor olabilir", "Arama uygulamasında mikrofonu Asistan Mikrofonu seçin veya görüşmeyi devralın.")
+                self.notify("Asistanın sesi arayana gitmiyor olabilir", "Arama uygulamasında mikrofonu Asistan Sanal Mikrofon seçin veya görüşmeyi devralın.")
                 if self.showLive { self.liveWindow.orderFrontRegardless() }
             }
         }

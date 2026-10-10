@@ -71,7 +71,7 @@ class BetaTests(unittest.TestCase):
                 environment.pop(key, None)
             script = "import importlib.util,sys,json; s=importlib.util.spec_from_file_location('audio_check',sys.argv[1]); m=importlib.util.module_from_spec(s);sys.modules[s.name]=m;s.loader.exec_module(m);print(json.dumps([m.IN_DEVICE,m.OUT_DEVICE]))"
             output = subprocess.check_output([sys.executable, '-B', '-c', script, str(Path(beta.__file__))], env=environment, text=True)
-            self.assertEqual(json.loads(output), ['Asistan Dinleme', 'Asistan Ses Çıkışı'])
+            self.assertEqual(json.loads(output), ['Asistan Dinleme', 'Asistan Sanal Çıkış'])
 
     def test_audio_device_lookup_is_exact_and_unambiguous(self):
         devices = [{'name': 'Asistan Dinleme Yedek', 'max_input_channels': 2},
@@ -82,7 +82,7 @@ class BetaTests(unittest.TestCase):
             with self.assertRaises(RuntimeError): beta.find_device('Asistan Dinleme', 'input')
 
     def test_audio_names_match_macos_canonical_unicode_forms(self):
-        name = 'Asistan Ses Çıkışı'
+        name = 'Asistan Sanal Çıkış'
         decomposed = unicodedata.normalize('NFD', name)
         self.assertNotEqual(name, decomposed)
         for device_name, requested in ((name, decomposed), (decomposed, name)):
