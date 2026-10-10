@@ -247,18 +247,30 @@ class LiveTests(unittest.TestCase):
         self.assertTrue(all(len(fields['content'].encode())<=450 for _,fields in c.connection.sent))
         c.deliver_notes();self.assertEqual(len(self.emitted),1)
 
+    def test_owner_note_is_paraphrased_and_bang_command_is_never_spoken(self):
+        command,text=live.owner_note('  !daha kibar konuş ve muhabbet et ')
+        self.assertTrue(command);self.assertIn('arayana asla söyleme',text);self.assertIn('daha kibar konuş',text);self.assertNotIn('!daha',text)
+        command,text=live.owner_note("Yarın 10'da müsait olacağım")
+        self.assertFalse(command);self.assertIn('birebir okuma',text)
+        c=self.call();c.connection=Connection();c.s.notes=[{'id':'n','text':'!daha kibar konuş','status':'bekliyor'}]
+        c.deliver_notes()
+        self.assertEqual([k for k,_ in c.connection.sent],['session.instructions.append'])
+        self.assertEqual(c.s.notes[0]['status'],'komut olarak iletildi; arayana söylenmez')
+
     def test_note_goes_in_as_instruction_and_ack_updates_status(self):
         c=self.call();c.connection=Connection();c.s.notes=[{'id':'n','text':'Yarın 10:00 uygun de','status':'bekliyor'}]
         c.deliver_notes()
         kinds=[k for k,_ in c.connection.sent]
-        self.assertEqual(kinds,['session.instructions.append']);self.assertNotIn('session.commentary.append',kinds)
+        self.assertEqual(set(kinds),{'session.instructions.append'});self.assertNotIn('session.commentary.append',kinds)
         self.assertIn('Yarın 10:00 uygun de',c.connection.sent[0][1]['content'])
-        self.assertEqual(c.s.notes[0]['status'],'talimat olarak iletildi; duyulması doğrulanmadı')
-        event_id=c.connection.sent[0][1]['event_id']
+        sent=len(kinds)
+        self.assertEqual(c.s.notes[0]['status'],'bilgi olarak iletildi; duyulması doğrulanmadı')
+        self.assertIn('birebir okuma',''.join(f['content'] for _,f in c.connection.sent))
+        event_id=c.connection.sent[-1][1]['event_id']
         c.handle_event({'type':'session.instructions.appended','client_event_id':event_id})
         self.assertEqual(c.s.notes[0]['status'],'model kabul etti; duyulması doğrulanmadı')
         self.assertEqual([kw['status'] for args,kw in self.emitted if args[0]=='note_status'][-1],'model kabul etti; duyulması doğrulanmadı')
-        c.deliver_notes();self.assertEqual(len(c.connection.sent),1)
+        c.deliver_notes();self.assertEqual(len(c.connection.sent),sent)
 
     def test_prewarmed_connection_skips_session_start_and_adds_caller(self):
         c=self.call();warm=Connection();warm.send('session.start',session={});warm.sent.clear()

@@ -275,6 +275,20 @@ class BetaTests(unittest.TestCase):
         a._deliver_notes(s,time.monotonic())
         self.assertEqual(s.notes[0]['status'],'iletildi')
 
+    def test_local_notes_are_rephrased_by_the_model_and_commands_stay_silent(self):
+        a = self.agent(); s = self.session(); a.session = s
+        a.handle_command({'command':'note','session_id':s.id,'note_id':'n1','text':"Yarın 10'da müsait olacağım"})
+        a.handle_command({'command':'note','session_id':s.id,'note_id':'n2','text':'!daha kibar konuş'})
+        spoken = []
+        a._speak = lambda s_, t, history=None, text=None: (spoken.append((history[-1]['content'] if history else None, text)) or ('Yarın saat onda müsait olacak.', None, False))
+        history = [{'role':'user','content':'Arama bağlandı.'},{'role':'assistant','content':'Merhaba.'},{'role':'user','content':'Ne zaman müsait?'}]
+        a._deliver_notes(s, time.monotonic(), history)
+        self.assertEqual(len(spoken), 1); self.assertIsNone(spoken[0][1])  # the model speaks, not the raw note
+        self.assertIn('Ne zaman müsait?', spoken[0][0]); self.assertIn('birebir okuma', spoken[0][0])
+        self.assertEqual([m['role'] for m in history], ['user','assistant','user','assistant'])
+        self.assertEqual([n['status'] for n in s.notes], ['iletildi', 'komut uygulandı; arayana söylenmez'])
+        self.assertIn('daha kibar konuş', beta.owner_commands(s)); self.assertNotIn('kibar', history[-1]['content'])
+
     def test_disk_failure_does_not_skip_session_cleanup(self):
         a = self.agent(); s = self.session()
         with patch.object(s,'write',side_effect=OSError('disk full')), patch.object(beta.sd,'InputStream',side_effect=OSError('missing device')):

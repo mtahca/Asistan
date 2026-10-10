@@ -299,6 +299,20 @@ class PCMPlayer:
                 if self.offset==len(current): self.buffers.popleft();self.offset=0
 
 
+def owner_note(text):
+    """Notes the owner types during a call. "!komut" is for the assistant alone and is never
+    spoken; any other note is information to use in the assistant's own words, never read out."""
+    text = text.strip()
+    if text.startswith('!'):
+        return True, ('TELEFON SAHİBİNDEN SANA ÖZEL KOMUT (arayana asla söyleme, aktarma veya ima etme; '
+                      'yalnızca bundan sonraki davranışına uygula): ' + text[1:].strip())
+    return False, ('TELEFON SAHİBİNDEN BİLGİ: ' + text + ' — Bunu arayana birebir okuma ve "size şunu iletmemi istedi" deme. '
+                   'Anlamını kavra; telefon sahibinin asistanı olarak kendi cümlenle, konuşmanın akışına ve arayanın sorularına '
+                   'uygun biçimde kullan. Örneğin "yarın 10\'da müsait olacağım" notu, "Yarın saat onda müsait olacak, '
+                   'o saatte görüşmek size uyar mı?" gibi bir yanıt demektir. Şu an konuşmayla ilgiliyse tek kısa cümleyle doğal '
+                   'biçimde belirt; değilse arayan ilgili bir şey sorduğunda kullan.')
+
+
 def prompt(system):
     # Adapt the text workflow's two assumptions; never speak the control marker.
     system=system.replace('Karşılama cümlesini zaten söyledin (yapay zeka asistanı olduğunu ve not aldığını belirttin).','Karşılamada yapay zeka asistanı olduğunu belirt.')
@@ -310,7 +324,7 @@ Backchannel policy: Kısa dinleme tepkilerini seyrek kullan.
 Interruption policy: Arayan sözünü kesince sus ve dinle.
 Delegation policy:
 Backend tools: Arayanın mesajını ve kullanıcı talimatlarını değerlendiren arka plan modeli; dış işlem yapmaz.
-Delegate to the backend when: Ayrıntılı bir yanıt, kullanıcı notlarının yorumu veya vedalaşma/kapanış gerekiyor.
+Delegate to the backend when: Ayrıntılı bir yanıt, emin olmadığın bir genel bilgi sorusu (mesafe, tarih, hesap gibi), kullanıcı notlarının yorumu veya vedalaşma/kapanış gerekiyor.
 Do not delegate to the backend when: Selamlaşma veya kısa bir açıklayıcı soru yeterli.
 Arka plan sonucu olmadan işlem yapıldığını, randevu veya dönüş sözü verildiğini iddia etme.
 '''
@@ -465,14 +479,14 @@ class LiveCall:
         acts on; commentary is advisory and was ignored. The last chunk's ack marks the note."""
         with self.s.lock: notes=[n.copy() for n in self.s.notes if n['status']=='bekliyor']
         for n in notes:
-            chunks=context_chunks('TELEFON SAHİBİNDEN YENİ TALİMAT (şimdi uygula): '+n['text']+
-                ' — Bu talimatı hemen, uygun ilk cümlende Türkçe olarak arayana aktar veya uygula; "not aldım" deme, doğrudan uygula.')
+            command,instruction=owner_note(n['text'])
+            chunks=context_chunks(instruction)
             event_id=None
             for chunk in chunks:
                 event_id='beta_note_'+uuid.uuid4().hex
                 self.connection.send('session.instructions.append',event_id=event_id,delegation_id=None,content=chunk)
             self.note_acks[event_id]=n['id']
-            self.set_note_status(n['id'],'talimat olarak iletildi; duyulması doğrulanmadı')
+            self.set_note_status(n['id'],'komut olarak iletildi; arayana söylenmez' if command else 'bilgi olarak iletildi; duyulması doğrulanmadı')
 
     def set_note_status(self,note_id,status):
         text=''

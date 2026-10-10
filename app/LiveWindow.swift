@@ -22,7 +22,7 @@ extension AppDelegate {
         sv.autoresizingMask = [.width, .height]
 
         let field = NSTextField(frame: NSRect(x: 10, y: 12, width: cb.width - 114, height: 26))
-        field.placeholderString = "Asistan’a not yaz (Enter ile gönder)"
+        field.placeholderString = "Asistan’a not yaz; ! ile başlayan komut arayana söylenmez (Enter)"
         field.autoresizingMask = [.width]
         field.target = self
         field.action = #selector(sendNote)
