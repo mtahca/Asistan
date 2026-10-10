@@ -27,7 +27,7 @@ enum MenuSection { case input, output, other }
 /// Finds the microphone and speaker lists in a call app's menus and decides what to press.
 /// Lists are recognised by a heading item (FaceTime "Video", Phone "Audio": "Microphone", "Output")
 /// or by a submenu title (WhatsApp "Call" → "Microphone"). Unlabelled lists are never touched,
-/// because Loopback devices can appear as both microphone and speaker.
+/// because virtual devices can appear as both microphone and speaker.
 enum MenuRoute {
     static let inputHeadings = ["microphone", "mikrofon", "input", "giriş", "ses girişi"]
     static let outputHeadings = ["output", "çıkış", "speaker", "speakers", "hoparlör", "ses çıkışı"]
@@ -78,7 +78,7 @@ enum MenuRoute {
         plan.inputListed = !inputs.isEmpty
         plan.inputCurrent = inputs.first(where: { $0.checked })?.title
         plan.inputReady = plan.inputCurrent.map { matches($0, microphone) } ?? false
-        // Prefer the device itself over "Use system setting (Asistan Mikrofonu)".
+        // Prefer the device itself over "Use system setting (Asistan Sanal Mikrofon)".
         let direct = inputs.first(where: { matches($0.title, microphone) && !isSystemSetting($0.title) })
         if !plan.inputReady, let target = direct ?? inputs.first(where: { matches($0.title, microphone) }) {
             plan.inputPress = MenuChoice(path: target.path, title: target.title)

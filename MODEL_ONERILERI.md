@@ -4,7 +4,7 @@ Bu belge uygulamadaki seçenekleri açıklar; modellerin Türkçe görüşmelerd
 
 ## Ses modları
 
-**Yerel ses** Whisper Large v3 Turbo veya Large v3 ile konuşmayı tanır, seçili metin modeliyle yanıt üretir ve Türkçe EMA ile seslendirir. Yerel modeller ilk kurulumda indirilir. **GPT-Live 1** sesin dinlenmesi ve üretilmesini OpenAI'ye taşır; arka plan ve özet için seçili metin modeli kullanılır. Mod değiştirmek Loopback hattını değiştirmez.
+**Yerel ses** Whisper Large v3 Turbo veya Large v3 ile konuşmayı tanır, seçili metin modeliyle yanıt üretir ve Türkçe EMA ile seslendirir. Yerel modeller ilk kurulumda indirilir. **GPT-Live 1** sesin dinlenmesi ve üretilmesini OpenAI'ye taşır; arka plan ve özet için seçili metin modeli kullanılır. Mod değiştirmek ses hattını değiştirmez.
 
 GPT-Live için OpenAI API anahtarı gerekir. Claude arka plan/özet kullanılırsa Anthropic anahtarı da gerekir. GPT-Live modunda Whisper/EMA yüklenmez; yalnızca çevrimiçi ortam kurulmuş Mac'te yerel moda dönmeden önce yerel kurulum tamamlanmalıdır.
 

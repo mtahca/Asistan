@@ -55,7 +55,7 @@ load_env()
 
 OWNER = os.getenv("OWNER_NAME", "Mehmet")
 IN_DEVICE = os.getenv("BETA_AUDIO_INPUT", "Asistan Dinleme")
-OUT_DEVICE = os.getenv("BETA_AUDIO_OUTPUT", "Asistan Ses Çıkışı")
+OUT_DEVICE = os.getenv("BETA_AUDIO_OUTPUT", "Asistan Sanal Çıkış")
 HUMAN_MIC_DEVICE = os.getenv("BETA_HUMAN_MIC", "MacBook Air Microphone")
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", "mlx-community/whisper-large-v3-turbo")
 STT_BACKEND = os.getenv("STT_BACKEND", "mlx")         # "mlx" (Whisper, Apple GPU), "faster" (Whisper, CPU), "deepgram" (bulut), "apple" (macOS dikte)
@@ -600,7 +600,7 @@ class Voice:
 
 
 class MicrophoneBridge:
-    """Forward the owner's microphone through the same fixed Loopback output."""
+    """Forward the owner's microphone through the same fixed assistant output."""
     def __init__(self, session_id: str, output_device: int, rate: int, microphone: str = HUMAN_MIC_DEVICE):
         self.id = session_id
         self.closed = False
@@ -635,7 +635,7 @@ class Agent:
         self.commands: queue.Queue = queue.Queue(maxsize=2)
         self.summaries: queue.Queue = queue.Queue()
         self._q: queue.Queue = queue.Queue(maxsize=256)
-        emit("loading", text="Loopback ses aygıtları kontrol ediliyor")
+        emit("loading", text="Asistan ses aygıtları kontrol ediliyor")
         self.in_idx = find_device(IN_DEVICE, "input")
         self.out_idx = find_device(OUT_DEVICE, "output")
         self.in_rate = int(sd.query_devices(self.in_idx)["default_samplerate"])
