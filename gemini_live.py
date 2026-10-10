@@ -10,7 +10,7 @@ import threading
 import time
 from datetime import datetime
 
-from live import SOCKET_TIMEOUT_S, LiveError, NoiseGate, PCMPlayer, diagnose, lower_tr, owner_note, prompt, put_latest
+from live import SOCKET_TIMEOUT_S, LiveError, NoiseGate, PCMPlayer, diagnose, lower_tr, owner_context, owner_note, override_reminder, prompt, put_latest, remember_command
 
 ENDPOINT = 'wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent'
 INPUT_RATE = 16000
@@ -75,9 +75,9 @@ def instructions(system):
     return text + '''
 Her zaman Türkçe konuş. Kısa ve doğal cümleler kur; tek seferde tek soru sor.
 Görüşmeyi bitirirken vedalaş ("İyi günler" gibi); teknik işaret yoktur.
-Bir işlem yapıldığını, randevu veya dönüş sözü verildiğini iddia etme; yalnızca mesajı not al.
+Bir işlem yapıldığını, randevu veya dönüş sözü verildiğini iddia etme.
 Genel bilgi sorusunda emin değilsen bilgi_al aracını kullan; beklerken "Hemen bakıyorum" gibi tek kısa cümle söyleyebilirsin.
-'''
+''' + override_reminder(system)
 
 
 class GeminiConnection:
@@ -218,6 +218,7 @@ class GeminiCall:
             history = '\n'.join(self.transcript.lines()[-12:])[-1500:]
             text += ('\n\nBAĞLANTI YENİLENDİ: Görüşme zaten sürüyor. Karşılamayı TEKRAR ETME; kaldığın yerden devam et.\n'
                      'Şimdiye kadarki konuşma:\n' + (history or '(henüz konuşma yok)'))
+        if resume: text += owner_context(self.s)
         self.connection = self.factory(self.key)
         self.connection.send(setup_message(text, self.model, self.voice, self.handle if resume else None, self.tools))
         try:
@@ -322,6 +323,7 @@ class GeminiCall:
         with self.s.lock: notes = [n for n in self.s.notes if n['status'] == 'bekliyor']
         for n in notes:
             command, instruction = owner_note(n['text'])
+            if command: remember_command(self.s, instruction)
             # A command is context only (no turn, so the model never answers it aloud).
             self.say(instruction, respond=not command)
             with self.s.lock: n['status'] = 'komut olarak iletildi; arayana söylenmez' if command else 'bilgi olarak iletildi; duyulması doğrulanmadı'

@@ -305,12 +305,34 @@ def owner_note(text):
     text = text.strip()
     if text.startswith('!'):
         return True, ('TELEFON SAHİBİNDEN SANA ÖZEL KOMUT (arayana asla söyleme, aktarma veya ima etme; '
-                      'yalnızca bundan sonraki davranışına uygula): ' + text[1:].strip())
+                      'varsayılan kurallardan önce gelir; uygun ilk anda ve bundan sonra uygula. Komut bir şey söylemeni '
+                      'istiyorsa bunu kendi cümlenle söyle ama komuttan bahsetme): ' + text[1:].strip())
     return False, ('TELEFON SAHİBİNDEN BİLGİ: ' + text + ' — Bunu arayana birebir okuma ve "size şunu iletmemi istedi" deme. '
                    'Anlamını kavra; telefon sahibinin asistanı olarak kendi cümlenle, konuşmanın akışına ve arayanın sorularına '
                    'uygun biçimde kullan. Örneğin "yarın 10\'da müsait olacağım" notu, "Yarın saat onda müsait olacak, '
                    'o saatte görüşmek size uyar mı?" gibi bir yanıt demektir. Şu an konuşmayla ilgiliyse tek kısa cümleyle doğal '
                    'biçimde belirt; değilse arayan ilgili bir şey sorduğunda kullan.')
+
+
+def owner_context(session):
+    """Notes already given in this call, for a replaced Live session that never saw them."""
+    with session.lock: texts=[n['text'] for n in session.notes if n['status']!='bekliyor']
+    if not texts: return ''
+    return '\n\nBU GÖRÜŞMEDE TELEFON SAHİBİNDEN DAHA ÖNCE GELENLER (hâlâ geçerli):' + ''.join('\n'+owner_note(t)[1] for t in texts)
+
+
+def remember_command(session, instruction):
+    """The background model (delegation, bilgi_al) reads "!" commands from the session."""
+    commands=getattr(session,'owner_commands',None)
+    if commands is not None:
+        with session.lock: commands.append(instruction)
+
+
+def override_reminder(system):
+    """Live models weigh the last lines most; restate that the owner's wishes win over the fixed rules."""
+    if 'ÖNCELİK KURALI' not in system: return ''
+    return ('SON HATIRLATMA: Telefon sahibinin talimatları ve görüşme sırasındaki komutları, bu metindeki bütün '
+            'varsayılan kurallardan (kısa konuşma, yalnızca mesaj alma, hitap, kişisel bilgi, kapanış) önce gelir.\n')
 
 
 def prompt(system):
@@ -327,7 +349,7 @@ Backend tools: Arayanın mesajını ve kullanıcı talimatlarını değerlendire
 Delegate to the backend when: Ayrıntılı bir yanıt, emin olmadığın bir genel bilgi sorusu (mesafe, tarih, hesap gibi), kullanıcı notlarının yorumu veya vedalaşma/kapanış gerekiyor.
 Do not delegate to the backend when: Selamlaşma veya kısa bir açıklayıcı soru yeterli.
 Arka plan sonucu olmadan işlem yapıldığını, randevu veya dönüş sözü verildiğini iddia etme.
-'''
+''' + override_reminder(system)
 
 
 def prewarm_connection(key, system, voice='marin', factory=LiveConnection, timeout=12):
@@ -480,6 +502,7 @@ class LiveCall:
         with self.s.lock: notes=[n.copy() for n in self.s.notes if n['status']=='bekliyor']
         for n in notes:
             command,instruction=owner_note(n['text'])
+            if command: remember_command(self.s,instruction)
             chunks=context_chunks(instruction)
             event_id=None
             for chunk in chunks:
@@ -507,7 +530,7 @@ class LiveCall:
             history='\n'.join(r['speaker']+': '+r['text'] for r in rows)[-1500:]
             instructions+=('\n\nBAĞLANTI YENİLENDİ: Görüşme zaten sürüyor. Karşılamayı ve kendini tanıtmayı TEKRAR ETME. '
                            'Kaldığın yerden doğal biçimde devam et; gerekiyorsa kısa bir "Pardon, bağlantı kısa süre kesildi, devam edelim." de.\n'
-                           'Şimdiye kadarki konuşma:\n'+(history or '(henüz konuşma yok)'))
+                           'Şimdiye kadarki konuşma:\n'+(history or '(henüz konuşma yok)'))+owner_context(self.s)
         if not resume and self.prewarmed is not None:
             self.connection, self.prewarmed = self.prewarmed, None
             # The prewarmed prompt had no caller; add what the ring showed.

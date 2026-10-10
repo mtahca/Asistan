@@ -164,6 +164,14 @@ class GeminiTests(unittest.TestCase):
         self.assertIn('Muğla Ankara arası kaç km?', asked[0][-1]['content'])
         c.worker_stop.set()
 
+    def test_reconnect_keeps_earlier_owner_notes(self):
+        c = self.call(); self.assertTrue(c.open_session())
+        c.s.notes.append({'id': 'n1', 'text': '!muhabbet et', 'status': 'komut olarak iletildi; arayana söylenmez'})
+        c.worker_stop.set(); self.assertTrue(c.open_session(resume=True))
+        text = c.connection.sent[0]['setup']['systemInstruction']['parts'][0]['text']
+        self.assertIn('muhabbet et', text); self.assertIn('DAHA ÖNCE GELENLER', text)
+        c.worker_stop.set()
+
     def test_bang_command_is_context_only(self):
         c = self.call(); self.assertTrue(c.open_session())
         c.s.notes.append({'id': 'n1', 'text': '!daha kibar konuş', 'status': 'bekliyor'})

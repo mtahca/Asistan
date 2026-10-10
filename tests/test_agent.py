@@ -424,6 +424,12 @@ class BetaTests(unittest.TestCase):
         self.assertEqual(beta.load_assistant_preferences(), {})
         self.assertEqual(beta.build_greeting({}, {}), beta.GREETING_TEXT)
         self.assertEqual(beta.build_system_prompt({}, {}), beta.SYSTEM_PROMPT)
+        titled = beta.build_system_prompt({}, {'ownerTitle': 'Mehmet Başkan', 'general': 'Benden Mehmet Başkan diye bahset.'})
+        self.assertNotIn('Mehmet Bey', titled); self.assertIn('"Mehmet Başkan"', titled)
+        self.assertGreater(titled.index('Benden Mehmet Başkan'), titled.index('ÖNCELİK KURALI'))
+        self.assertTrue(beta.build_greeting({}, {'ownerTitle': 'Mehmet Başkan'}).startswith('Merhaba, Mehmet Başkan şu anda'))
+        custom = beta.build_system_prompt({}, {'greeting': "Merhaba, Mehmet Başkan'ın telefonu."})
+        self.assertNotIn('zaten söyledin', custom); self.assertIn('henüz söylemediysen', custom)
 
     def test_daily_note_expires_but_general_instructions_remain(self):
         self.save_preferences(general='Kısa konuş.', today='Bugün toplantıdayım.', todayDate='2000-01-01')
