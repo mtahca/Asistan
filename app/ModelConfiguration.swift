@@ -45,10 +45,11 @@ struct BetaModelConfiguration {
         guard geminiVoices.contains(voice) else { throw invalid("Gemini sesi geçersiz. Ayarlardan desteklenen bir ses seçin.") }
         return voice
     }
-    /// gemini-3.8-live is Google's stable Live model; 3.1 Flash Live is the older preview the user asked for.
-    static let geminiModels: [(title: String, model: String)] = [("Gemini 3.8 Live", "gemini-3.8-live"), ("Gemini 3.1 Flash Live", "gemini-3.1-flash-live-preview")]
+    /// gemini-3.8-live is Google's stable Live model. 3.1 Flash Live was removed in 0.8.13; saved settings move to 3.8.
+    static let geminiModels: [(title: String, model: String)] = [("Gemini 3.8 Live", "gemini-3.8-live")]
     static func geminiModel(in values: [String: String]) throws -> String {
-        let model = values["GEMINI_LIVE_MODEL"].flatMap { $0.isEmpty ? nil : $0 } ?? "gemini-3.8-live"
+        var model = values["GEMINI_LIVE_MODEL"].flatMap { $0.isEmpty ? nil : $0 } ?? "gemini-3.8-live"
+        if model == "gemini-3.1-flash-live-preview" { model = "gemini-3.8-live" }
         guard geminiModels.contains(where: { $0.model == model }) else { throw invalid("Gemini modeli geçersiz.") }
         return model
     }

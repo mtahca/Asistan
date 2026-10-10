@@ -1,4 +1,4 @@
-"""Gemini Live transport and call loop (gemini-3.8-live or gemini-3.1-flash-live-preview).
+"""Gemini Live transport and call loop (gemini-3.8-live).
 Raw WebSocket protocol: ai.google.dev/api/live. Input is 16 kHz PCM, output 24 kHz PCM.
 Gemini listens, decides when the caller has finished, and speaks; there is no backend delegation.
 """
@@ -10,12 +10,14 @@ import threading
 import time
 from datetime import datetime
 
-from live import LiveError, NoiseGate, PCMPlayer, diagnose, lower_tr, prompt
+from live import SOCKET_TIMEOUT_S, LiveError, NoiseGate, PCMPlayer, diagnose, lower_tr, prompt, put_latest
 
 ENDPOINT = 'wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent'
 INPUT_RATE = 16000
 OUTPUT_RATE = 24000
-MODELS = ('gemini-3.8-live', 'gemini-3.1-flash-live-preview')
+MODELS = ('gemini-3.8-live',)
+# Gemini sends a whole reply faster than real time and expects the client to buffer it.
+MAX_BUFFER_S = 120
 # Prebuilt voices; keep the Swift catalog (BetaModelConfiguration.geminiVoices) in sync.
 VOICES = ('Kore', 'Aoede', 'Leda', 'Zephyr', 'Puck', 'Charon', 'Fenrir', 'Orus', 'Callirrhoe', 'Autonoe', 'Enceladus',
           'Iapetus', 'Umbriel', 'Algieba', 'Despina', 'Erinome', 'Algenib', 'Rasalgethi', 'Laomedeia', 'Achernar',
@@ -27,6 +29,7 @@ FAREWELLS = ('hoşça kal', 'hoşçakal', 'iyi günler', 'iyi akşamlar', 'iyi g
 
 def model_name(values):
     model = values.get('GEMINI_LIVE_MODEL') or 'gemini-3.8-live'
+    if model == 'gemini-3.1-flash-live-preview': model = 'gemini-3.8-live'  # removed in 0.8.13; old settings move on
     if model not in MODELS: raise ValueError('Gemini modeli geçersiz. Model ayarlarını yeniden kaydedin.')
     return model
 
@@ -46,8 +49,6 @@ def setup_message(instructions, model, voice, handle=None):
     """Native-audio models pick the language themselves; Turkish is enforced in the instructions."""
     config = dict(responseModalities=['AUDIO'],
                   speechConfig=dict(voiceConfig=dict(prebuiltVoiceConfig=dict(voiceName=voice))))
-    if model == 'gemini-3.1-flash-live-preview':
-        config['thinkingConfig'] = dict(thinkingLevel='minimal')  # 3.8 rejects thinkingConfig
     setup = dict(model='models/' + model, generationConfig=config,
                  systemInstruction=dict(parts=[dict(text=instructions)]),
                  inputAudioTranscription=dict(languageCodes=['tr']), outputAudioTranscription=dict(languageCodes=['tr']),
@@ -78,7 +79,7 @@ class GeminiConnection:
                 redirect_limit=0, suppress_origin=True, enable_multithread=True, sslopt={'ca_certs': certifi.where()})
             if self.ws.getstatus() != 101:
                 raise LiveError('Gemini Live bağlantısı kabul edilmedi.')
-            self.ws.settimeout(0.5)
+            self.ws.settimeout(SOCKET_TIMEOUT_S)
         except Exception as e:
             self.close()
             code = getattr(e, 'status_code', None)
@@ -90,16 +91,12 @@ class GeminiConnection:
             raise LiveError(message) from None
 
     def send(self, message, drop_on_timeout=False):
+        # Never abandoned midway (see live.SOCKET_TIMEOUT_S); drop_on_timeout is kept for callers.
         payload = json.dumps(message, ensure_ascii=False)
-        for attempt in range(3):
-            try:
-                self.ws.send(payload); return True
-            except self.timeout_error:
-                if drop_on_timeout: return False
-                time.sleep(0.05)
-            except Exception as e:
-                diagnose(f'Gemini gönderimi başarısız: {type(e).__name__}: {e}')
-                break
+        try:
+            self.ws.send(payload); return True
+        except Exception as e:
+            diagnose(f'Gemini gönderimi başarısız: {type(e).__name__}: {e}')
         raise LiveError('Gemini Live bağlantısına veri gönderilemedi.')
 
     def recv(self):
@@ -178,7 +175,7 @@ class GeminiCall:
         self.agent = agent; self.s = session; self.greeting = greeting
         self.key = key; self.model = model; self.voice = voice; self.factory = factory
         self.instructions = instructions(system)
-        self.connection = None; self.player = PCMPlayer(agent.np, OUTPUT_RATE)
+        self.connection = None; self.player = PCMPlayer(agent.np, OUTPUT_RATE, MAX_BUFFER_S)
         self.events = queue.Queue(maxsize=1024); self.audio = queue.Queue(maxsize=25); self.errors = queue.Queue()
         self.worker_stop = threading.Event(); self.streams = []
         self.transcript = Transcript(session.started)
@@ -190,8 +187,7 @@ class GeminiCall:
 
     def capture(self, indata, frames, time_info, status):
         if self.s.stop.is_set() or self.worker_stop.is_set(): return
-        try: self.audio.put_nowait(indata.mean(axis=1).copy())
-        except queue.Full: self.errors.put('Ses bağlantısı yetişemedi; görüşmeyi devralabilirsiniz.')
+        put_latest(self.audio, indata.mean(axis=1).copy())
 
     def receive(self, connection, stop):
         try:
@@ -279,7 +275,7 @@ class GeminiCall:
             self.agent.emit('note_status', self.s.id, note_id=n['id'], text=n['text'], status=n['status'])
             self.agent._checkpoint(self.s)
 
-    def reconnect(self, attempt):
+    def reconnect(self, attempt, reason=''):
         self.worker_stop.set()
         try: self.connection.close()
         except Exception: pass
@@ -289,7 +285,8 @@ class GeminiCall:
                 try: q.get_nowait()
                 except queue.Empty: break
         self.go_away = False
-        self.agent.emit('live_notice', self.s.id, text=f'Gemini bağlantısı yenileniyor ({attempt}/{self.RECONNECT_LIMIT})…')
+        diagnose(f'Gemini yeniden bağlanma nedeni: {reason}')
+        self.agent.emit('live_notice', self.s.id, text=f'Gemini bağlantısı yenileniyor ({reason}; {attempt}/{self.RECONNECT_LIMIT})…')
         try:
             if not self.open_session(resume=True): return False
         except LiveError as e:
@@ -312,10 +309,10 @@ class GeminiCall:
         while True:
             try:
                 self.converse(); return
-            except LiveError:
+            except LiveError as e:
                 if self.s.stop.is_set() or attempt >= self.RECONNECT_LIMIT: raise
                 attempt += 1
-                if not self.reconnect(attempt): raise
+                if not self.reconnect(attempt, str(e).rstrip('.')): raise
 
     def converse(self):
         np = self.agent.np; started = time.monotonic()

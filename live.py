@@ -74,6 +74,24 @@ def diagnose(text):
     print(time.strftime('[%H:%M:%S] ')+'GPT-Live tanı: '+str(text)[:300], file=sys.stderr, flush=True)
 
 
+# One timeout bounds both send and recv on the socket. 0.5 s used to cut sends short during a
+# brief Wi-Fi stall, leaving half a WebSocket/TLS frame on the wire; the server then dropped the
+# link ("Connection to remote host was lost") about every 18 s. A stall this long means the link is gone.
+SOCKET_TIMEOUT_S = 5
+# The first greeting audio often takes ~2.5 s; a spoken cue sent before then starts a second, overlapping reply.
+GREETING_FALLBACK_S = 4
+
+
+def put_latest(q, item):
+    """Audio callbacks must never block or fail the call: drop the oldest frame when full."""
+    try: q.put_nowait(item)
+    except queue.Full:
+        try: q.get_nowait()
+        except queue.Empty: pass
+        try: q.put_nowait(item)
+        except queue.Full: pass
+
+
 class LiveConnection:
     def __init__(self, key, timeout=8, factory=None):
         import certifi
@@ -89,7 +107,7 @@ class LiveConnection:
             # websocket-client can return a 3xx handshake when redirects are disabled.
             if self.ws.getstatus() != 101:
                 raise LiveError('GPT-Live bağlantısı yönlendirildi veya kabul edilmedi.')
-            self.ws.settimeout(0.5)
+            self.ws.settimeout(SOCKET_TIMEOUT_S)
         except Exception as e:
             self.close()
             code = getattr(e, 'status_code', None)
@@ -101,21 +119,15 @@ class LiveConnection:
             raise LiveError(message) from None
 
     def send(self, kind, *, event_id=None, drop_on_timeout=False, **fields):
-        """The socket timeout (0.5 s) also bounds send. A short network stall must not end
-        the call: control messages are retried for ~1.5 s, audio frames are simply dropped."""
+        """A send is never retried or abandoned midway: see SOCKET_TIMEOUT_S. drop_on_timeout is
+        kept for callers; stale caller audio is dropped from the capture queue instead."""
         event_id = event_id or 'beta_' + uuid.uuid4().hex
         payload = json.dumps(dict(type=kind, event_id=event_id, **fields), ensure_ascii=False)
-        for attempt in range(3):
-            try:
-                self.ws.send(payload)
-                return event_id
-            except self.timeout_error:
-                if drop_on_timeout: return None
-                if attempt == 2: diagnose(f'{kind} gönderimi 3 denemede zaman aşımına uğradı')
-                else: time.sleep(0.05)
-            except Exception as e:
-                diagnose(f'{kind} gönderilemedi: {type(e).__name__}: {e}')
-                break
+        try:
+            self.ws.send(payload)
+            return event_id
+        except Exception as e:
+            diagnose(f'{kind} gönderilemedi: {type(e).__name__}: {e}')
         raise LiveError('GPT-Live bağlantısına veri gönderilemedi.')
 
     def recv(self):
@@ -178,6 +190,11 @@ class Transcript:
     def __init__(self):
         self.fragments = []
         self.seen = set()
+        self.offset_ms = 0
+
+    def new_session(self):
+        """A resumed Live session restarts its clock at 0; keep its fragments after the old ones."""
+        self.offset_ms = max((f['end_ms'] for f in self.fragments), default=self.offset_ms) + 2000
 
     def add(self, event):
         speaker = 'Arayan' if event['type'] == 'session.input_transcript.delta' else 'Asistan'
@@ -189,7 +206,7 @@ class Transcript:
         start, end = event.get('start_ms'), event.get('end_ms')
         if not isinstance(start, (int,float)) or not isinstance(end, (int,float)) or start < 0 or end < start:
             raise LiveError('GPT-Live döküm zamanları okunamadı.')
-        self.fragments.append(dict(speaker=speaker, delta=delta, start_ms=start, end_ms=end))
+        self.fragments.append(dict(speaker=speaker, delta=delta, start_ms=start+self.offset_ms, end_ms=end+self.offset_ms))
         return True
 
     def rows(self):
@@ -235,9 +252,11 @@ class NoiseGate:
 
 class PCMPlayer:
     """One stream owner closes audio. Callbacks only read a bounded PCM queue."""
-    def __init__(self, np, rate=RATE):
+    def __init__(self, np, rate=RATE, max_seconds=120, overflow='Ses oynatma sırası taştı.'):
         self.np = np
         self.rate = rate
+        self.max_seconds = max_seconds
+        self.overflow = overflow
         self.lock = threading.Lock()
         self.buffers = deque()
         self.offset = 0
@@ -255,8 +274,8 @@ class PCMPlayer:
             raise LiveError('GPT-Live ses biçimi okunamadı.') from None
         with self.lock:
             if self.stopped or self.muted: return
-            if self.samples+len(x) > self.rate*3:
-                raise LiveError('GPT-Live ses aktarımı yetişemedi; eski ses oynatılmadı.')
+            if self.samples+len(x) > self.rate*self.max_seconds:
+                raise LiveError(self.overflow)
             if len(x):
                 self.buffers.append(x); self.samples+=len(x); self.last_audio=time.monotonic()
 
@@ -333,10 +352,7 @@ class LiveCall:
 
     def capture(self,indata,frames,time_info,status):
         if self.s.stop.is_set() or self.worker_stop.is_set(): return
-        try:
-            self.audio.put_nowait(indata.mean(axis=1).copy())
-        except queue.Full:
-            self.errors.put('Ses bağlantısı yetişemedi; görüşmeyi devralabilirsiniz.')
+        put_latest(self.audio, indata.mean(axis=1).copy())
 
     def receive(self):
         try:
@@ -435,7 +451,7 @@ class LiveCall:
         elapsed=time.monotonic()-self.greeting_sent_at
         # Accepted instructions may still leave Live waiting. One speakable cue,
         # only while both sides remain silent; never repeat or interrupt a caller.
-        if elapsed>1 and self.greeting_ack and not self.greeting_fallback and not self.first_output and not self.output_text_seen and self.input_revision==0 and not self.caller_audio_seen:
+        if elapsed>GREETING_FALLBACK_S and self.greeting_ack and not self.greeting_fallback and not self.first_output and not self.output_text_seen and self.input_revision==0 and not self.caller_audio_seen:
             self.greeting_fallback=True
             for chunk in context_chunks(self.greeting):
                 self.connection.send('session.commentary.append',delegation_id=None,content=chunk)
@@ -505,7 +521,7 @@ class LiveCall:
         self.worker_stop=threading.Event()
         reader=threading.Thread(target=self.receive,daemon=True);self.reader=reader;reader.start()
 
-    def reconnect(self,attempt):
+    def reconnect(self,attempt,reason=''):
         """Replace a broken Live connection inside the same phone call. Audio streams stay open."""
         old_stop=self.worker_stop; old_stop.set()
         try: self.connection.close()
@@ -517,9 +533,10 @@ class LiveCall:
                 try: q.get_nowait()
                 except queue.Empty: break
         self.pending.clear(); self.delegations.clear(); self.backend=None
-        self.player.clear()
+        self.player.clear(); self.transcript.new_session()
         self.greeting_sent_at=None; self.greeting_id=None
-        self.agent.emit('live_notice',self.s.id,text=f'GPT-Live bağlantısı koptu; yeniden bağlanılıyor ({attempt}/{self.RECONNECT_LIMIT})…')
+        diagnose(f'yeniden bağlanma nedeni: {reason}')
+        self.agent.emit('live_notice',self.s.id,text=f'GPT-Live bağlantısı koptu ({reason}); yeniden bağlanılıyor ({attempt}/{self.RECONNECT_LIMIT})…')
         try:
             if not self.open_session(resume=True): return False
         except LiveError as e:
@@ -557,7 +574,7 @@ class LiveCall:
                 reason=self.server_reason() or e
                 if attempt>=self.RECONNECT_LIMIT: raise reason from None
                 attempt+=1
-                if not self.reconnect(attempt): raise reason from None
+                if not self.reconnect(attempt,str(reason).rstrip('.')): raise reason from None
 
     def server_reason(self):
         """Audio is sent every 30 ms, so a send can fail before the reader's queued
