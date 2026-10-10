@@ -3,7 +3,7 @@ import ApplicationServices
 import AVFoundation
 import Contacts
 
-final class SetupController: NSObject, NSWindowDelegate {
+final class SetupController: NSObject, NSWindowDelegate, SettingsPane {
     let app: AppDelegate
     var window: NSWindow!
     var labels: [String: NSTextField] = [:]
@@ -78,11 +78,12 @@ final class SetupController: NSObject, NSWindowDelegate {
         feedback = label("", at: NSRect(x: 24, y: 10, width: 392, height: 44), in: window.contentView!)
         finishButton = button("Başlat / Kapat", action: #selector(finish), at: NSRect(x: 430, y: 14, width: 166, height: 32), in: window.contentView!)
     }
-    func show() {
-        refresh(); window.center(); window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
+    func prepare() {
+        refresh()
         timer?.invalidate(); timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in self?.refresh() }
     }
-    func windowWillClose(_ notification: Notification) { timer?.invalidate(); timer = nil }
+    func paneClosed() { timer?.invalidate(); timer = nil }
+    func windowWillClose(_ notification: Notification) { paneClosed() }
     func log(_ text: String) {
         logView.textStorage?.append(NSAttributedString(string: text, attributes: [.font: NSFont.monospacedSystemFont(ofSize: 11, weight: .regular), .foregroundColor: NSColor.labelColor]))
         logView.scrollToEndOfDocument(nil)

@@ -1,4 +1,4 @@
-# Asistan 0.8.10
+# Asistan 0.8.11
 
 macOS menü çubuğunda çalışan yapay zekâ telefon asistanı. iPhone–Mac arama aktarımıyla gelen Telefon/FaceTime ve WhatsApp masaüstü sesli aramalarını karşılar, arayanla Türkçe konuşur ve görüşme notu çıkarır. Görüşmeyi canlı metinden izleyebilir, asistana not gönderebilir, görüşmeyi devralabilir veya sonlandırabilirsiniz. Aynı işleri **Asistan Mobile** ile iPhone'dan da yapabilirsiniz.
 
@@ -88,9 +88,9 @@ Seçenekler: [MODEL_ONERILERI.md](MODEL_ONERILERI.md).
 
 ## Asistan Mobile ve Odak
 
-**iPhone ve Odak…** ekranından mobil bağlantıyı açın. Mac ve iPhone aynı yerel ağda olmalı; istenirse Yerel Ağ iznini verin. Asistan Mobile'da Bonjour listesinden adı **— Asistan** ile biten Mac'i seçin ya da ekranda gösterilen Mac adresini yazın. Sonra sekiz haneli eşleştirme kodunu girin.
+**iPhone ve Odak…** ekranından mobil bağlantıyı açın. Mac ve iPhone aynı yerel ağda olmalı; istenirse Yerel Ağ iznini verin. Asistan Mobile'da **QR kodu tara** ile penceredeki kodu okutun (iPhone Kamera da olur).
 
-Bağlantı Mobile v1 protokolünü kullanır: TLS-PSK, port **47821**. Telefondan gelen aramayı cevaplayabilir, not gönderebilir, canlı metni izleyebilir ve görüşmeyi sonlandırabilirsiniz. Ham ses telefona aktarılmaz.
+QR kodu rastgele 256 bitlik bir anahtar taşır; bağlantı bu anahtarla TLS-PSK ile şifrelenir (port **47822**, `_asistan-v2._tcp`). Eski Asistan Mobile sürümleri için 8 haneli kodla bağlantı (port **47821**) açık kalabilir; bu kod ağda kaydedilen bir bağlantıdan tahmin edilebileceği için bütün telefonlar QR ile eşleşince pencereden kapatın. Ortak protokol `app/MobileProtocol.swift` dosyasındadır ve Asistan Mobile'daki kopyasıyla birebir aynıdır; CI farkı yakalar. Telefondan gelen aramayı cevaplayabilir, not gönderebilir, canlı metni izleyebilir ve görüşmeyi sonlandırabilirsiniz. Ham ses telefona aktarılmaz.
 
 **Odak açıkken gelen aramaları otomatik cevapla** isteğe bağlıdır. Genel otomatik cevaplama ayarını değiştirmez. macOS'un Odak durumu belgelenmemiş yerel bir dosyadan okunur; okunamıyorsa Tam Disk Erişimi gerekebilir. Odak durumu okunamazsa otomatik cevap başlatılmaz.
 
@@ -108,6 +108,7 @@ Testler kurulu Python ortamını kullanır (`~/Documents/Asistan Data/.venv`). B
 
 ## Sürüm geçmişi
 
+- **0.8.11** — QR ile mobil eşleştirme (256 bit anahtar, 47822 portu; eski 8 haneli kod seçimlik). Gelen aramalar için tek seçim: Kapalı / Bana sor / Odak açıkken / Her zaman (⌘P yine duraklatır). Gelen arama bildiriminde "Asistanla cevapla" düğmesi; panelde Return cevaplar, Esc kapatır. Ayarlar tek pencerede sekmeler hâlinde. Canlı pencerede konuşma balonları. **Tüm görüşmeler…** penceresi: aranabilir not listesi. Hazır notlar Kişiselleştirme'den düzenlenir ve iPhone'a gider; iPhone son görüşmelerin özetlerini görür. Arama algılama: arama uygulamalarının erişilebilirlik olayları hemen tarama başlatır, düğmeler önce kimlikle eşlenir, cevaplama düğmesi bulunamayan aramada uyarı ve tanı dosyası. `main.swift` konularına göre dosyalara bölündü. GitHub Actions CI.
 - **0.8.10** — GPT-Live gürültü kapısı: arayan konuşmazken trafik gibi arka plan sesi OpenAI'ye gönderilmez, yerine sessizlik gider; model gürültüden konuşma uydurmaz. Arka plan seviyesi sürekli ölçülür (son ~3 sn'nin alt yüzdeliği), konuşma onun 3 katını aşınca kapı açılır; 240 ms ön tampon ve 750 ms gecikme sözcük başlarını/sonlarını korur. Modeller penceresinde (GPT-Live modunda) kapatılabilir; `.env`: `LIVE_NOISE_GATE`, `LIVE_GATE_RATIO`. Modele ayrıca gürültüye yanıt vermeme kuralı eklendi.
 - **0.8.9** — Arayan tespiti: 0.8.6'daki genişletme Telefon uygulamasının Son Aramalar satırlarını ("Ad, Outgoing FaceTime Audio, 6 calls, …") arayan sanabiliyordu ve Swift testi düşüyordu. Bildirim kuralı tam olarak "Ad, Tür" biçimine daraltıldı.
 - **0.8.8** — GPT-Live: karşılıklı vedalaşma (arayanın son sözü ve asistanın yanıtı "hoşça kal / iyi günler / görüşürüz…" içeriyorsa) algılanır ve görüşme ses bittikten 3 sn sonra kapatılır; önce bu karar yalnızca arka plan modelinden geliyordu. Sessiz başlangıçta karşılama hatırlatması 2 sn yerine 1 sn sonra gönderilir.

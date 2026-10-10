@@ -1,6 +1,6 @@
 import Cocoa
 
-final class PersonalizationController: NSObject {
+final class PersonalizationController: NSObject, SettingsPane {
     let app: AppDelegate
     var window: NSWindow!
     var editors: [String: NSTextView] = [:]
@@ -49,7 +49,8 @@ final class PersonalizationController: NSObject {
         let save = NSButton(title: "Kaydet", target: self, action: #selector(save))
         save.bezelStyle = .rounded; save.frame = NSRect(x: 430, y: 10, width: 130, height: 30); content.addSubview(save)
     }
-    func show() {
+    func paneClosed() {}
+    func prepare() {
         do {
             let prefs = try AssistantPreferences.load(from: preferencesURL)
             editors["general"]?.string = prefs.general
@@ -62,7 +63,6 @@ final class PersonalizationController: NSObject {
         } catch {
             canSave = false; feedback.stringValue = "Ayarlar okunamadı; mevcut dosya korunuyor: " + error.localizedDescription
         }
-        window.center(); window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
     }
     @objc func clearToday() { editors["today"]?.string = ""; feedback.stringValue = "Temizlemeyi uygulamak için Kaydet’e basın." }
     @objc func save() {

@@ -1,5 +1,14 @@
 # Doğrulama
 
+## 0.8.11
+
+- **Mobil v2:** `PairingLink` (QR bağlantısı) gidiş-dönüş, yanlış şema, kısa anahtar ve eksik anahtar testleri; `MobileFrames(limit:)` büyük çerçeve testi. Mac ve iPhone kopyaları birebir aynı (CI `diff`). iOS Simulator derlemesi hatasız.
+- **Cevaplama modu:** `AnswerMode` testleri; duraklatma otomatik seçimi korur.
+- **Hazır notlar ve geçmiş:** `QuickNotes.parse/load/save`, `RecentNotes.summary` ve `historyItems` testleri.
+- **Arama algılama:** `CallUI.answerIdentifier/endIdentifier` testleri.
+
+Gerçek aramada denenmesi gerekenler: QR ile eşleşen iPhone'un bağlanması ve eski kodla bağlanan eski sürüm; erişilebilirlik olaylarıyla cevaplamanın hızı; gelen arama bildirimindeki "Asistanla cevapla" düğmesi; tek ayarlar penceresinde her sekmenin kaydetmesi; canlı penceredeki balonlar. Gerçek FaceTime/WhatsApp düğme kimlikleri henüz kaydedilmedi; ilk aramada `son_arama_tani.txt` bunları gösterir.
+
 ## 0.8.10
 
 `NoiseGate` (live.py): kare başına RMS; son 100 karenin (≈3 sn) %10 yüzdeliği arka plan; eşik = max(`live_threshold`, arka plan × `LIVE_GATE_RATIO`). Kapı kapalıyken sıfır kare gönderilir; açılırken 8 karelik ön tampon, kapanırken 25 kare gecikme. Testler: ön tampon/gecikme, sessizliğin sıfır olarak gitmesi, sürekli gürültünün arka plana dönmesi, kapatma ve oran ayarı. Python testleri: 105.

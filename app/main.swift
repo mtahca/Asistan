@@ -28,10 +28,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var setupController: SetupController?
     var statusItem: NSStatusItem!
     var statusLine = NSMenuItem(title: "", action: nil, keyEquivalent: "")
-    var autoItem: NSMenuItem!
+    var answerItems: [AnswerMode: NSMenuItem] = [:]
     var lastNoteItem: NSMenuItem!
     var panel: NSPanel!
     var panelTitle: NSTextField!
+    var panelIcon: NSImageView!
     var answerButton: NSButton!
 
 
@@ -73,7 +74,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     lazy var mobile = MobileBridge()
     var mobileSettings: MobileSettingsController?
     var mobileItem: NSMenuItem!
-    var focusItem: NSMenuItem!
     var focusAuto = UserDefaults.standard.bool(forKey: "betaFocusAuto")
     let focusMonitor = FocusMonitor()
     var offerToken: String?
@@ -81,7 +81,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var sessionCaller = ""
     var autoMode = UserDefaults.standard.bool(forKey: "autoMode")
     var paused = UserDefaults.standard.bool(forKey: "paused")
-    var pauseItem: NSMenuItem!
     var lastPermissionState: String?
     var callFailure: (text: String, expires: Date)?
     var manualAnswer = false
@@ -107,22 +106,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var settingsCache: (modified: Date?, values: [String: String])?
     let routeQueue = DispatchQueue(label: "com.mtahca.asistan.call-route")
     var routeFallback = (UserDefaults.standard.object(forKey: "routeFallbackDefaultInput") as? Bool) ?? true
-    @objc func showPersonalization() {
-        if personalization == nil { personalization = PersonalizationController(app: self) }
-        personalization?.show()
+    var settingsWindow: SettingsWindow?
+    var historyWindow: HistoryWindowController?
+    @objc func showHistory() {
+        if historyWindow == nil { historyWindow = HistoryWindowController(app: self) }
+        historyWindow?.show()
     }
+    /// Every settings area is a tab of one window; the menu items open the matching tab.
+    func openSettings(_ tab: String) {
+        if settingsWindow == nil {
+            if setupController == nil { setupController = SetupController(app: self) }
+            if modelSettings == nil { modelSettings = ModelSettingsController(app: self) }
+            if soundPrefs == nil { soundPrefs = SoundPrefsController(app: self) }
+            if personalization == nil { personalization = PersonalizationController(app: self) }
+            if mobileSettings == nil { mobileSettings = MobileSettingsController(app: self) }
+            let window = SettingsWindow()
+            window.add("setup", "Durum ve kurulum", setupController!)
+            window.add("models", "Modeller", modelSettings!)
+            window.add("sound", "Ses", soundPrefs!)
+            window.add("personal", "Kişiselleştirme", personalization!)
+            window.add("mobile", "iPhone ve Odak", mobileSettings!)
+            window.finish()
+            settingsWindow = window
+        }
+        settingsWindow?.show(tab)
+    }
+    @objc func showPersonalization() { openSettings("personal") }
     @objc func restartFromMenu() {
         guard !busy else { notify("Görüşme sürüyor", "Görüşme bittikten sonra yeniden başlatabilirsiniz."); return }
         restartAgent()
     }
-    @objc func showModelSettings() {
-        if modelSettings == nil { modelSettings = ModelSettingsController(app: self) }
-        modelSettings?.show()
-    }
+    @objc func showModelSettings() { openSettings("models") }
     @objc func togglePaused() { setPaused(!paused) }
     func setPaused(_ value: Bool) {
         paused = value; UserDefaults.standard.set(paused, forKey: "paused")
-        pauseItem.state = paused ? .on : .off
+        refreshAnswerMenu()
         if paused { hidePanel() }
         updateStatus()
     }
@@ -148,14 +166,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         AVCaptureDevice.requestAccess(for: .audio) { ok in logLine("Mikrofon izni: \(ok)") }
         CNContactStore().requestAccess(for: .contacts) { ok, _ in logLine("Rehber izni: \(ok)") }
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+        configureNotifications()
 
         let mainMenu = NSMenu()
         let applicationItem = NSMenuItem()
         let applicationMenu = NSMenu(title: "Asistan")
-        applicationMenu.addItem(withTitle: "Kurulum ve izinleri kontrol et…", action: #selector(showSetup), keyEquivalent: ",").target = self
-        applicationMenu.addItem(withTitle: "Ses ayarları…", action: #selector(showSoundPrefs), keyEquivalent: "").target = self
-        applicationMenu.addItem(withTitle: "Kişiselleştirme…", action: #selector(showPersonalization), keyEquivalent: "").target = self
-        applicationMenu.addItem(withTitle: "Modeller ve API anahtarları…", action: #selector(showModelSettings), keyEquivalent: "").target = self
+        applicationMenu.addItem(withTitle: "Ayarlar…", action: #selector(showSetup), keyEquivalent: ",").target = self
         applicationMenu.addItem(withTitle: "Ses ajanını yeniden başlat", action: #selector(restartFromMenu), keyEquivalent: "").target = self
         applicationMenu.addItem(NSMenuItem.separator())
         applicationMenu.addItem(withTitle: "Asistan’dan çık", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
@@ -263,10 +279,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         updateStatus()
     }
 
-    @objc func showSetup() {
-        if setupController == nil { setupController = SetupController(app: self) }
-        setupController?.show()
-    }
+    @objc func showSetup() { openSettings("setup") }
 
     func openLog() {
         let path = projectDir.appendingPathComponent("app.log").path
@@ -302,12 +315,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let view = NSMenuItem(title: title, action: action, keyEquivalent: key)
             view.target = self; targetMenu.addItem(view); return view
         }
-        pauseItem = item("Arama karşılamayı duraklat", #selector(togglePaused), key: "p")
-        pauseItem.state = paused ? .on : .off
-        autoItem = item("Gelen aramayı otomatik cevapla", #selector(toggleAuto))
-        autoItem.state = autoMode ? .on : .off
-        focusItem = item("Odak açıkken otomatik cevapla", #selector(toggleFocusAuto))
-        focusItem.state = focusAuto ? .on : .off
+        let answerHeader = NSMenuItem(title: "Gelen aramalar", action: nil, keyEquivalent: ""); answerHeader.isEnabled = false
+        menu.addItem(answerHeader)
+        for mode in AnswerMode.allCases {
+            let entry = item(mode.title, #selector(chooseAnswerMode(_:)), key: mode == .off ? "p" : "")
+            entry.representedObject = mode.rawValue; entry.indentationLevel = 1; answerItems[mode] = entry
+        }
+        refreshAnswerMenu()
         mobileItem = item("iPhone ve Odak…", #selector(showMobileSettings))
         refreshMobileMenu()
         menu.addItem(.separator())
@@ -318,12 +332,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let recentItem = NSMenuItem(title: "Son görüşmeler", action: nil, keyEquivalent: "")
         recentMenu = NSMenu(); recentMenu.autoenablesItems = false; recentMenu.delegate = self
         recentItem.submenu = recentMenu; menu.addItem(recentItem)
-        _ = item("Notlar klasörünü aç", #selector(openNotesFolder))
+        _ = item("Tüm görüşmeler…", #selector(showHistory))
         menu.addItem(.separator())
-        _ = item("Kişiselleştirme…", #selector(showPersonalization))
-        _ = item("Ses ayarları…", #selector(showSoundPrefs))
-        _ = item("Modeller ve API anahtarları…", #selector(showModelSettings))
-        _ = item("Kurulum ve izinleri kontrol et…", #selector(showSetup))
+        _ = item("Ayarlar…", #selector(showSetup), key: ",")
+        _ = item("Kişiselleştirme ve hazır notlar…", #selector(showPersonalization))
         let advancedItem = NSMenuItem(title: "Diğer seçenekler", action: nil, keyEquivalent: "")
         let advanced = NSMenu(); advanced.autoenablesItems = false
         liveItem = item("Görüşme sırasında canlı metni göster", #selector(toggleLive), advanced)
@@ -403,18 +415,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         mobileItem.state = mobile.enabled ? .on : .off
         mobileItem.title = "iPhone ve Odak…" + (mobile.clientCount > 0 ? " (\(mobile.clientCount) cihaz)" : "")
     }
-    @objc func showMobileSettings() {
-        if mobileSettings == nil { mobileSettings = MobileSettingsController(app: self) }
-        mobileSettings?.show()
-    }
+    @objc func showMobileSettings() { openSettings("mobile") }
     func setFocusAuto(_ enabled: Bool) {
         focusAuto = enabled; UserDefaults.standard.set(enabled, forKey: "betaFocusAuto")
-        focusItem?.state = enabled ? .on : .off
+        refreshAnswerMenu()
         focusMonitor.refresh(enabled: enabled, force: true); updateStatus()
     }
-    @objc func toggleFocusAuto() {
-        setFocusAuto(!focusAuto)
-        if focusAuto && focusMonitor.active == nil { showMobileSettings() }
+    var answerMode: AnswerMode { AnswerMode.current(paused: paused, auto: autoMode, focus: focusAuto) }
+    func refreshAnswerMenu() {
+        let mode = answerMode
+        for (key, entry) in answerItems { entry.state = key == mode ? .on : .off }
+    }
+    /// The pause shortcut toggles: choosing "Kapalı" again resumes the previous choice.
+    @objc func chooseAnswerMode(_ sender: NSMenuItem) {
+        guard let mode = (sender.representedObject as? String).flatMap(AnswerMode.init(rawValue:)) else { return }
+        if mode == .off { setPaused(!paused); return }
+        let flags = mode.flags(auto: autoMode, focus: focusAuto)
+        autoMode = flags.auto; UserDefaults.standard.set(autoMode, forKey: "autoMode")
+        setFocusAuto(flags.focus)
+        if paused { setPaused(false) }
+        refreshAnswerMenu()
+        if mode == .focus && focusMonitor.active == nil { showMobileSettings() }
     }
     func publishMobileState() {
         let r = scanNotifications()
@@ -423,19 +444,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let ringer = !info.name.isEmpty ? info.name : (!info.number.isEmpty ? info.number : "Bilinmeyen arayan")
         ringerName = ringing && ringer != "Bilinmeyen arayan" ? ringer : ""
         let identity = ringing ? r.source.rawValue + "|" + ringer : ""
-        if !ringing { offerToken = nil; offerIdentity = "" }
-        else if offerToken == nil || offerIdentity != identity { offerToken = UUID().uuidString; offerIdentity = identity }
+        if !ringing {
+            if offerToken != nil { withdrawIncomingNotification() }
+            offerToken = nil; offerIdentity = ""
+        }
+        else if offerToken == nil || offerIdentity != identity {
+            offerToken = UUID().uuidString; offerIdentity = identity
+            postIncomingNotification(ringer: ringer, source: r.source)
+        }
         mobile.setState(inSession: inSession && stoppingDeadline == nil, caller: sessionCaller,
                         startedAt: sessionStarted, status: statusLine.title, ringing: ringing, ringer: ringing ? ringer : "",
                         context: inSession ? sessionID : offerToken, paused: paused, stopping: stoppingDeadline != nil,
                         source: (inSession || humanCallActive ? liveSource : (ringing ? r.source : nil)).map { $0 == .whatsapp ? "whatsapp" : "phone" } ?? "",
                         humanCall: humanCallActive)
-    }
-    @objc func toggleAuto() {
-        autoMode.toggle()
-        UserDefaults.standard.set(autoMode, forKey: "autoMode")
-        autoItem.state = autoMode ? .on : .off
-        updateStatus()
     }
     /// Metin dosyalarını Xcode yerine TextEdit ile açar
     func openInTextEdit(_ url: URL) {
@@ -458,6 +479,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let entry = NSMenuItem(title: note.title, action: #selector(openRecentNote(_:)), keyEquivalent: "")
             entry.target = self; entry.representedObject = note.url; menu.addItem(entry)
         }
+        menu.addItem(.separator())
+        let all = NSMenuItem(title: "Tüm görüşmeler…", action: #selector(showHistory), keyEquivalent: ""); all.target = self
+        menu.addItem(all)
     }
     @objc func openRecentNote(_ sender: NSMenuItem) { if let url = sender.representedObject as? URL { openInTextEdit(url) } }
     @objc func openNotesFolder() { NSWorkspace.shared.open(projectDir.appendingPathComponent("notlar")) }
@@ -562,10 +586,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         return builtinDevice(input: true).map(deviceName) ?? ""
     }
-    @objc func showSoundPrefs() {
-        if soundPrefs == nil { soundPrefs = SoundPrefsController(app: self) }
-        soundPrefs?.show()
-    }
+    @objc func showSoundPrefs() { openSettings("sound") }
 
     @objc func dumpDiag() {
         DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in

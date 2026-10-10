@@ -1,7 +1,7 @@
 import Cocoa
 import CoreImage
 
-final class MobileSettingsController: NSObject, NSWindowDelegate {
+final class MobileSettingsController: NSObject, NSWindowDelegate, SettingsPane {
     let app: AppDelegate
     var window: NSWindow!
     var mobileToggle: NSButton!
@@ -52,9 +52,9 @@ final class MobileSettingsController: NSObject, NSWindowDelegate {
         let rep = NSCIImageRep(ciImage: output)
         let image = NSImage(size: rep.size); image.addRepresentation(rep); return image
     }
-    func show() {
+    func prepare() {
         addresses = LiveProtocol.localAddresses()
-        refresh(); window.center(); window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
+        refresh()
         timer?.invalidate(); timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in self?.refresh() }
     }
     func refresh() {
@@ -84,5 +84,6 @@ final class MobileSettingsController: NSObject, NSWindowDelegate {
     @objc func openFocusPermission() {
         NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")!)
     }
-    func windowWillClose(_ notification: Notification) { timer?.invalidate(); timer = nil }
+    func paneClosed() { timer?.invalidate(); timer = nil }
+    func windowWillClose(_ notification: Notification) { paneClosed() }
 }

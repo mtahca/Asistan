@@ -3,7 +3,7 @@ import CoreAudio
 
 // MARK: - Ses ayarları penceresi
 
-final class SoundPrefsController: NSObject {
+final class SoundPrefsController: NSObject, SettingsPane {
     let app: AppDelegate
     var window: NSWindow!
     var info: NSTextField!
@@ -12,7 +12,7 @@ final class SoundPrefsController: NSObject {
     var routeInfo: NSTextField!
     var routeButton: NSButton!
     var fallbackToggle: NSButton!
-    init(app: AppDelegate) { self.app = app; super.init() }
+    init(app: AppDelegate) { self.app = app; super.init(); build() }
     func build() {
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 540, height: 540), styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.title = "Asistan — Kalıcı ses hattı"; window.isReleasedWhenClosed = false
@@ -94,5 +94,6 @@ final class SoundPrefsController: NSObject {
     @objc func openLoopback() {
         NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: "/Applications/Loopback.app"), configuration: NSWorkspace.OpenConfiguration())
     }
-    func show() { if window == nil { build() }; refresh(); window.center(); window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true) }
+    func prepare() { refresh() }
+    func paneClosed() {}
 }

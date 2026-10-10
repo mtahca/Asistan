@@ -126,11 +126,19 @@ extension AppDelegate {
             liveExtras.append((speaker, text, color))
             mobile.append(kind: speaker == "Arayan" ? "caller" : (speaker == "Asistan" ? "assistant" : "you"), speaker: speaker, text: text)
         }
+        // A tinted block per message, like the phone: the caller on the left, everyone else on the right.
+        let block = NSTextBlock()
+        block.backgroundColor = color.withAlphaComponent(0.13)
+        block.setWidth(8, type: .absoluteValueType, for: .padding)
+        block.setWidth(speaker == "Arayan" ? 70 : 0, type: .absoluteValueType, for: .margin, edge: .maxX)
+        block.setWidth(speaker == "Arayan" ? 0 : 70, type: .absoluteValueType, for: .margin, edge: .minX)
+        let style = NSMutableParagraphStyle(); style.textBlocks = [block]
         let a = NSMutableAttributedString()
-        a.append(NSAttributedString(string: speaker + ": ", attributes: [
-            .font: NSFont.boldSystemFont(ofSize: 13), .foregroundColor: color]))
-        a.append(NSAttributedString(string: text + "\n\n", attributes: [
-            .font: NSFont.systemFont(ofSize: 13), .foregroundColor: NSColor.labelColor]))
+        a.append(NSAttributedString(string: speaker + "\n", attributes: [
+            .font: NSFont.boldSystemFont(ofSize: 12), .foregroundColor: color, .paragraphStyle: style]))
+        a.append(NSAttributedString(string: text + "\n", attributes: [
+            .font: NSFont.systemFont(ofSize: 13), .foregroundColor: NSColor.labelColor, .paragraphStyle: style]))
+        a.append(NSAttributedString(string: "\n", attributes: [.font: NSFont.systemFont(ofSize: 6)]))
         liveText.textStorage?.append(a)
         scrollLiveIfFollowing()
     }
@@ -141,8 +149,9 @@ extension AppDelegate {
             if text != liveCallerHeading { liveExtras.append(("", text, nil)) }
             mobile.append(kind: text.contains("Arayan araya girdi") ? "interrupted" : "note", speaker: "", text: text)
         }
+        let centered = NSMutableParagraphStyle(); centered.alignment = .center
         liveText.textStorage?.append(NSAttributedString(string: text + "\n\n", attributes: [
-            .font: NSFont.systemFont(ofSize: 12), .foregroundColor: NSColor.secondaryLabelColor]))
+            .font: NSFont.systemFont(ofSize: 12), .foregroundColor: NSColor.secondaryLabelColor, .paragraphStyle: centered]))
         scrollLiveIfFollowing()
     }
 
