@@ -149,6 +149,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         resolveProjectDir()
         openLog()
         logLine("Uygulama başladı. Sürüm: \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") ?? "?"). Uygulama: \(Bundle.main.bundleURL.path). Klasör: \(projectDir.path)")
+        guard ensureSingleInstance() else { return }
         if usingLegacyData {
             logLine("Asistan Beta açık; veriler taşınmadan eski klasörden kullanılıyor")
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
@@ -217,6 +218,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if !st.perms || UserDefaults.standard.string(forKey: "setupSeenVersion") != version {
             UserDefaults.standard.set(version, forKey: "setupSeenVersion")
             showSetup()
+        }
+    }
+
+    /// Two copies once answered the same call. Runs before anything touches audio or the agent.
+    func ensureSingleInstance() -> Bool {
+        let me = NSRunningApplication.current
+        let others = NSRunningApplication.runningApplications(withBundleIdentifier: Bundle.main.bundleIdentifier ?? "")
+            .filter { $0.processIdentifier != me.processIdentifier && !$0.isTerminated }
+        let decision = SingleInstance.decide(selfPath: Bundle.main.bundleURL.path,
+            others: others.map { (pid: $0.processIdentifier, path: $0.bundleURL?.path ?? "?") })
+        switch decision {
+        case .run:
+            return true
+        case .replace(let pids):
+            let old = others.filter { pids.contains($0.processIdentifier) }
+            logLine("Başka bir Asistan kopyası açıktı; kapatılıyor: \(old.map { $0.bundleURL?.path ?? "?" }.joined(separator: ", "))")
+            old.forEach { $0.terminate() }
+            let deadline = Date().addingTimeInterval(8)
+            while old.contains(where: { !$0.isTerminated }) && Date() < deadline {
+                RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+            }
+            old.filter { !$0.isTerminated }.forEach { $0.forceTerminate() }
+            return true
+        case .quit(let path):
+            logLine("Asistan zaten açık (\(path)); bu kopya kapanıyor: \(Bundle.main.bundleURL.path)")
+            NSApp.activate(ignoringOtherApps: true)
+            let alert = NSAlert()
+            alert.messageText = "Asistan zaten açık"
+            alert.informativeText = "Aynı aramayı iki Asistan karşılamasın diye bu kopya kapanıyor. Açık olan: \(path)"
+            alert.runModal()
+            // Not NSApp.terminate: its cleanup would reset the running copy's audio devices.
+            exit(0)
         }
     }
 
