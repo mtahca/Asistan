@@ -53,6 +53,8 @@ import Foundation
         check(RecentNotes.title(fileName: "2026-10-09_14-05-33_ab12cd34.md", header: "# Asistan — 09.10.2026 14:05\n\nArayan ekranı: Ayşe +90 555\n") == "09.10 14:05 · Ayşe +90 555")
         check(RecentNotes.title(fileName: "2026-10-09_14-05-33_ab12cd34.md", header: "Arayan ekranı: belirtilmedi\n") == "09.10 14:05 · Bilinmiyor")
         check(RecentNotes.title(fileName: "eski.md", header: "") == "eski.md · Bilinmiyor")
+        check(RecentNotes.summary(from: "## Kullanıcının notları\nx\n\n## Özet\nKısa özet.\nİkinci satır.\n\n## Döküm\nArayan: ...") == "Kısa özet.\nİkinci satır.")
+        check(RecentNotes.summary(from: "## Döküm\nözet yok") == "")
         let notes = current.appendingPathComponent("notlar")
         for (name, caller) in [("2026-10-08_09-00-00_a.md", "Ali"), ("2026-10-09_10-30-00_b.md", "Ayşe"), ("2026-10-07_08-00-00_c.md", "Can")] {
             try ("# Asistan\n\nArayan ekranı: " + caller + "\n").write(to: notes.appendingPathComponent(name), atomically: true, encoding: .utf8)
@@ -60,6 +62,9 @@ import Foundation
         try "x".write(to: notes.appendingPathComponent("not.txt"), atomically: true, encoding: .utf8)
         let recent = RecentNotes.list(in: notes, limit: 2)
         check(recent.map(\.title) == ["09.10 10:30 · Ayşe", "08.10 09:00 · Ali"])
+        let history = RecentNotes.historyItems(in: notes, limit: 2)
+        check(history.map { $0["title"] as? String } == ["09.10 10:30 · Ayşe", "08.10 09:00 · Ali"])
+        check(history.allSatisfy { ($0["summary"] as? String) == "" && $0["id"] is String })
         check(RecentNotes.list(in: home.appendingPathComponent("yok")).isEmpty)
         let missing = home.appendingPathComponent("yok/notlar")
         check(RecentNotes.isNote(path: notes.path + "/a.md", in: notes))

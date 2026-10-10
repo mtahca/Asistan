@@ -19,399 +19,6 @@ func logLine(_ s: String) {
     if let d = line.data(using: .utf8) { logHandle?.write(d) }
 }
 
-// MARK: - Accessibility yardımcıları
-
-func attr(_ el: AXUIElement, _ name: String) -> CFTypeRef? {
-    var v: CFTypeRef?
-    return AXUIElementCopyAttributeValue(el, name as CFString, &v) == .success ? v : nil
-}
-func str(_ el: AXUIElement, _ name: String) -> String { (attr(el, name) as? String) ?? "" }
-func children(_ el: AXUIElement) -> [AXUIElement] { (attr(el, kAXChildrenAttribute as String) as? [AXUIElement]) ?? [] }
-func actionNames(_ el: AXUIElement) -> [String] {
-    var a: CFArray?
-    guard AXUIElementCopyActionNames(el, &a) == .success, let arr = a as? [String] else { return [] }
-    return arr
-}
-func labels(_ el: AXUIElement) -> [String] {
-    [kAXTitleAttribute, kAXDescriptionAttribute, kAXHelpAttribute, kAXValueAttribute, kAXIdentifierAttribute]
-        .map { str(el, $0 as String) }
-        .filter { !$0.isEmpty }
-}
-func walk(_ el: AXUIElement, depth: Int = 0, _ visit: (AXUIElement, Int) -> Void) {
-    let r = (attr(el, kAXRoleAttribute as String) as? String) ?? ""
-    if r == "AXMenuBar" || r == "AXMenuBarItem" || r == "AXMenu" || r == "AXMenuItem" { return }
-    visit(el, depth)
-    if depth >= 14 { return }
-    for c in children(el) { walk(c, depth: depth + 1, visit) }
-}
-func frameOf(_ el: AXUIElement) -> CGRect? {
-    guard let pv = attr(el, kAXPositionAttribute as String),
-          let sv = attr(el, kAXSizeAttribute as String) else { return nil }
-    var pos = CGPoint.zero
-    var size = CGSize.zero
-    guard AXValueGetValue(pv as! AXValue, .cgPoint, &pos),
-          AXValueGetValue(sv as! AXValue, .cgSize, &size) else { return nil }
-    return CGRect(origin: pos, size: size)
-}
-
-// Arama kaynağına ait erişilebilir cevaplama kontrolü.
-
-struct ScanResult {
-    var button: AXUIElement?
-    var endButton: AXUIElement?
-    var action: String = kAXPressAction as String
-    var groupFrame: CGRect?
-    var source: CallSource = .apple
-    var texts: [CallerLabel] = []
-}
-
-/// Only call-owned windows and notification subtrees may expose an answer button.
-func scanCallRoot(_ root: AXUIElement, source: CallSource) -> ScanResult {
-    var result = ScanResult(); result.source = source
-    var texts: [String] = [], hasDecline = false
-    var endCandidate: (AXUIElement, [String])?
-    walk(root) { el, depth in
-        let values = labels(el)
-        texts += values
-        let role = str(el, kAXRoleAttribute as String)
-        for (attribute, key) in [(CallerAttribute.title, kAXTitleAttribute), (.description, kAXDescriptionAttribute),
-                                (.help, kAXHelpAttribute), (.value, kAXValueAttribute), (.identifier, kAXIdentifierAttribute)] {
-            let value = str(el, key as String)
-            if !value.isEmpty { result.texts.append(CallerLabel(role: role, attribute: attribute, value: value)) }
-        }
-        if str(el, kAXRoleAttribute as String) == "AXButton" {
-            if values.contains(where: CallUI.decline) { hasDecline = true }
-            if endCandidate == nil, str(el, kAXSubroleAttribute as String) != "AXCloseButton",
-               values.contains(where: CallUI.end) { endCandidate = (el, values) }
-            if result.button == nil && values.contains(where: CallUI.answer) { result.button = el }
-        }
-        if result.button == nil, let action = actionNames(el).first(where: CallUI.answer) {
-            result.button = el; result.action = action
-        }
-    }
-    let hasAnswer = result.button != nil
-    if let candidate = endCandidate,
-       CallUI.connectedEndControl(candidate.1, rootHasAnswer: hasAnswer, rootHasDecline: hasDecline) {
-        result.endButton = candidate.0
-    }
-    if CallUI.videoCall(texts) || (source == .whatsapp && (!hasDecline || !CallUI.voiceIncoming(texts))) { result.button = nil }
-    if result.button != nil { result.groupFrame = frameOf(root) }
-    return result
-}
-
-func notificationRoots(for source: CallSource) -> [AXUIElement] {
-    guard let app = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.notificationcenterui").first else { return [] }
-    var roots: [AXUIElement] = []
-    let application = AXUIElementCreateApplication(app.processIdentifier)
-    AXUIElementSetMessagingTimeout(application, 0.3)
-    walk(application) { el, _ in
-        let match = labels(el).contains { text in
-            source == .apple ? CallUI.appleNotification(text) : CallUI.normalized(text).contains("whatsapp_notification")
-        }
-        if match { roots.append(el) }
-    }
-    return roots
-}
-
-func appWindows(for source: CallSource) -> [AXUIElement] {
-    source.bundleIDs.flatMap { bid -> [AXUIElement] in
-        guard let app = NSRunningApplication.runningApplications(withBundleIdentifier: bid).first else { return [] }
-        let application = AXUIElementCreateApplication(app.processIdentifier)
-        AXUIElementSetMessagingTimeout(application, 0.3)
-        return (attr(application, kAXWindowsAttribute as String) as? [AXUIElement]) ?? []
-    }
-}
-
-// Accessibility calls can wait on another application. Poll on one worker;
-// the main thread only consumes the last complete observation.
-final class CallObserver {
-    static let shared = CallObserver()
-    private let queue = DispatchQueue(label: "com.mtahca.asistan.call-observer")
-    private let lock = NSLock()
-    private var incoming = ScanResult()
-    private var controls: [CallSource: AXUIElement] = [:]
-    private var connectedCallers: [CallSource: CallerInfo] = [:]
-    private var updated = Date.distantPast
-    private var started = false
-    /// While an answered call is being confirmed, poll faster so the session starts sooner.
-    var urgent = false
-    func start() {
-        guard !started else { return }; started = true
-        queue.async { self.poll() }
-    }
-    private func poll() {
-        var found = ScanResult(), endings: [CallSource: AXUIElement] = [:]
-        var callers: [CallSource: CallerInfo] = [:]
-        if AXIsProcessTrusted() {
-            for source in [CallSource.apple, .whatsapp] {
-                for root in notificationRoots(for: source) + appWindows(for: source) {
-                    let result = scanCallRoot(root, source: source)
-                    if found.button == nil && result.button != nil { found = result }
-                    if endings[source] == nil, let end = result.endButton { endings[source] = end }
-                    if result.endButton != nil {
-                        let caller = extractCaller(from: result.texts, source: source)
-                        if callers[source] == nil || (callers[source]!.name.isEmpty && callers[source]!.number.isEmpty) {
-                            callers[source] = caller
-                        }
-                    }
-                }
-            }
-        }
-        lock.lock(); incoming = found; controls = endings; connectedCallers = callers; updated = Date(); lock.unlock()
-        queue.asyncAfter(deadline: .now() + (urgent ? 0.2 : 0.6)) { self.poll() }
-    }
-    func result() -> ScanResult {
-        lock.lock(); defer { lock.unlock() }
-        return Date().timeIntervalSince(updated) < 5 ? incoming : ScanResult()
-    }
-    func control(_ source: CallSource) -> AXUIElement? {
-        lock.lock(); defer { lock.unlock() }
-        return Date().timeIntervalSince(updated) < 5 ? controls[source] : nil
-    }
-    func connectedCaller(_ source: CallSource) -> CallerInfo {
-        lock.lock(); defer { lock.unlock() }
-        guard Date().timeIntervalSince(updated) < 5, controls[source] != nil else { return CallerInfo() }
-        return connectedCallers[source] ?? CallerInfo()
-    }
-}
-func scanNotifications() -> ScanResult { CallObserver.shared.result() }
-
-/// Tanı: çalışan uygulamanın izinlerini ve arama arayüzünün erişilebilirlik ağacını yazar.
-func dumpTree(bundleIDs: [String], to url: URL) {
-    var out = "Tanı \(Date())\n"
-    out += "Sürüm: \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") ?? "?")\n"
-    out += "Uygulama: \(Bundle.main.bundleURL.path)\n"
-    out += "Erişilebilirlik: \(AXIsProcessTrusted())\n"
-    out += "Mikrofon: \(AVCaptureDevice.authorizationStatus(for: .audio).rawValue)\n"
-    for bid in bundleIDs {
-        guard let app = NSRunningApplication.runningApplications(withBundleIdentifier: bid).first else {
-            out += "\n== \(bid): çalışmıyor\n"; continue
-        }
-        out += "\n== \(bid) (pid \(app.processIdentifier))\n"
-        let root = AXUIElementCreateApplication(app.processIdentifier)
-        var value: CFTypeRef?
-        let readError = AXUIElementCopyAttributeValue(root, kAXChildrenAttribute as CFString, &value)
-        out += "Arayüz okuma sonucu: \(readError.rawValue)\n"
-        var windowValue: CFTypeRef?
-        let windowError = AXUIElementCopyAttributeValue(root, kAXWindowsAttribute as CFString, &windowValue)
-        let windows = (windowValue as? [AXUIElement]) ?? []
-        out += "Pencere okuma sonucu: \(windowError.rawValue); pencere sayısı: \(windows.count)\n"
-        // Some apps expose AXWindows without placing them under AXChildren.
-        // Inspect the same roots used by the call observer, not only app children.
-        for treeRoot in windows.isEmpty ? [root] : windows {
-        walk(treeRoot) { el, depth in
-            let role = str(el, kAXRoleAttribute as String)
-            let sub = str(el, kAXSubroleAttribute as String)
-            let acts = actionNames(el).joined(separator: ",")
-            var line = String(repeating: "  ", count: depth) + role
-            if !sub.isEmpty { line += "/" + sub }
-            let l = labels(el)
-            if !l.isEmpty { line += " " + l.map { "\"\($0)\"" }.joined(separator: " ") }
-            if !acts.isEmpty { line += " [\(acts)]" }
-            if let f = frameOf(el) { line += " \(Int(f.minX)),\(Int(f.minY)) \(Int(f.width))x\(Int(f.height))" }
-            out += line + "\n"
-        }
-        }
-    }
-    do {
-        try out.write(to: url, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
-    } catch { logLine("Tanı kaydedilemedi: \(error.localizedDescription)") }
-}
-
-// MARK: - Ses kullanan süreçler (tanı)
-
-func fourCC(_ s: String) -> UInt32 { s.utf8.reduce(0) { ($0 << 8) | UInt32($1) } }
-
-/// Hangi süreçler şu an ses girişi/çıkışı kullanıyor (macOS 14.2+)
-func audioProcessReport() -> String {
-    var addr = AudioObjectPropertyAddress(mSelector: fourCC("prs#"), mScope: kAudioObjectPropertyScopeGlobal,
-                                          mElement: kAudioObjectPropertyElementMain)
-    var size: UInt32 = 0
-    guard AudioObjectGetPropertyDataSize(hwSystem, &addr, 0, nil, &size) == noErr, size > 0 else { return "(süreç listesi yok)" }
-    var ids = [AudioObjectID](repeating: 0, count: Int(size) / MemoryLayout<AudioObjectID>.size)
-    guard AudioObjectGetPropertyData(hwSystem, &addr, 0, nil, &size, &ids) == noErr else { return "(okunamadı)" }
-    var out: [String] = []
-    for id in ids {
-        func u32(_ sel: String) -> UInt32 {
-            var a = AudioObjectPropertyAddress(mSelector: fourCC(sel), mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
-            var v: UInt32 = 0; var sz = UInt32(4)
-            _ = AudioObjectGetPropertyData(id, &a, 0, nil, &sz, &v)
-            return v
-        }
-        var bid = ""
-        var a = AudioObjectPropertyAddress(mSelector: fourCC("pbid"), mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
-        var cf: Unmanaged<CFString>?
-        var sz = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
-        if withUnsafeMutablePointer(to: &cf, { AudioObjectGetPropertyData(id, &a, 0, nil, &sz, $0) }) == noErr, let c = cf { bid = c.takeRetainedValue() as String }
-        let rin = u32("piri"), rout = u32("piro")
-        if rin != 0 || rout != 0 { out.append("\(bid)(pid \(u32("ppid")))\(rin != 0 ? " GİRİŞ" : "")\(rout != 0 ? " ÇIKIŞ" : "")") }
-    }
-    return out.isEmpty ? "(kimse ses kullanmıyor)" : out.joined(separator: "; ")
-}
-
-var defaultListenerInstalled = false
-func installDefaultListeners() {
-    guard !defaultListenerInstalled else { return }
-    defaultListenerInstalled = true
-    for (sel, name) in [(kAudioHardwarePropertyDefaultInputDevice, "giriş"), (kAudioHardwarePropertyDefaultOutputDevice, "çıkış")] {
-        var addr = AudioObjectPropertyAddress(mSelector: sel, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
-        AudioObjectAddPropertyListenerBlock(hwSystem, &addr, DispatchQueue.main) { _, _ in
-            let d = getDefault(sel).map(deviceName) ?? "?"
-            logLine("[izleme] varsayılan \(name) -> \(d) | ses kullananlar: \(audioProcessReport())")
-        }
-    }
-}
-
-// MARK: - Ses cihazları (CoreAudio)
-
-let hwSystem = AudioObjectID(kAudioObjectSystemObject)
-
-func deviceID(forUID uid: String) -> AudioDeviceID? {
-    var addr = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyTranslateUIDToDevice,
-                                          mScope: kAudioObjectPropertyScopeGlobal,
-                                          mElement: kAudioObjectPropertyElementMain)
-    var cfUID = uid as CFString
-    var dev = AudioDeviceID(0)
-    var size = UInt32(MemoryLayout<AudioDeviceID>.size)
-    let st = withUnsafeMutablePointer(to: &cfUID) { p in
-        AudioObjectGetPropertyData(hwSystem, &addr, UInt32(MemoryLayout<CFString>.size), p, &size, &dev)
-    }
-    return (st == noErr && dev != 0) ? dev : nil
-}
-
-func getDefault(_ sel: AudioObjectPropertySelector) -> AudioDeviceID? {
-    var addr = AudioObjectPropertyAddress(mSelector: sel, mScope: kAudioObjectPropertyScopeGlobal,
-                                          mElement: kAudioObjectPropertyElementMain)
-    var dev = AudioDeviceID(0)
-    var size = UInt32(MemoryLayout<AudioDeviceID>.size)
-    let st = AudioObjectGetPropertyData(hwSystem, &addr, 0, nil, &size, &dev)
-    return (st == noErr && dev != 0) ? dev : nil
-}
-
-@discardableResult
-func allDevices() -> [AudioDeviceID] {
-    var addr = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDevices,
-                                          mScope: kAudioObjectPropertyScopeGlobal,
-                                          mElement: kAudioObjectPropertyElementMain)
-    var size: UInt32 = 0
-    guard AudioObjectGetPropertyDataSize(hwSystem, &addr, 0, nil, &size) == noErr else { return [] }
-    var ids = [AudioDeviceID](repeating: 0, count: Int(size) / MemoryLayout<AudioDeviceID>.size)
-    guard AudioObjectGetPropertyData(hwSystem, &addr, 0, nil, &size, &ids) == noErr else { return [] }
-    return ids
-}
-
-func hasStreams(_ d: AudioDeviceID, input: Bool) -> Bool {
-    var addr = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyStreams,
-                                          mScope: input ? kAudioDevicePropertyScopeInput : kAudioDevicePropertyScopeOutput,
-                                          mElement: kAudioObjectPropertyElementMain)
-    var size: UInt32 = 0
-    return AudioObjectGetPropertyDataSize(d, &addr, 0, nil, &size) == noErr && size > 0
-}
-
-func transportType(_ d: AudioDeviceID) -> UInt32 {
-    var addr = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyTransportType,
-                                          mScope: kAudioObjectPropertyScopeGlobal,
-                                          mElement: kAudioObjectPropertyElementMain)
-    var t: UInt32 = 0
-    var size = UInt32(MemoryLayout<UInt32>.size)
-    _ = AudioObjectGetPropertyData(d, &addr, 0, nil, &size, &t)
-    return t
-}
-
-func deviceUIDString(_ d: AudioDeviceID) -> String {
-    var addr = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyDeviceUID,
-                                          mScope: kAudioObjectPropertyScopeGlobal,
-                                          mElement: kAudioObjectPropertyElementMain)
-    var cf: Unmanaged<CFString>?
-    var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
-    let st = withUnsafeMutablePointer(to: &cf) { AudioObjectGetPropertyData(d, &addr, 0, nil, &size, $0) }
-    if st == noErr, let u = cf { return u.takeRetainedValue() as String }
-    return ""
-}
-
-func deviceName(_ d: AudioDeviceID) -> String {
-    var addr = AudioObjectPropertyAddress(mSelector: kAudioObjectPropertyName,
-                                          mScope: kAudioObjectPropertyScopeGlobal,
-                                          mElement: kAudioObjectPropertyElementMain)
-    var cf: Unmanaged<CFString>?
-    var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
-    let st = withUnsafeMutablePointer(to: &cf) { AudioObjectGetPropertyData(d, &addr, 0, nil, &size, $0) }
-    if st == noErr, let u = cf { return u.takeRetainedValue() as String }
-    return deviceUIDString(d)
-}
-
-func builtinDevice(input: Bool) -> AudioDeviceID? {
-    allDevices().first { hasStreams($0, input: input) && transportType($0) == kAudioDeviceTransportTypeBuiltIn }
-}
-
-func namedAudioDevice(_ name: String, input: Bool) -> AudioDeviceID? {
-    let matches = allDevices().filter { deviceName($0) == name && hasStreams($0, input: input) }
-    return matches.count == 1 ? matches[0] : nil
-}
-
-func loopbackAudioReady() -> Bool {
-    guard let listen = namedAudioDevice(BetaAudio.listenName, input: true),
-          let microphone = namedAudioDevice(BetaAudio.microphoneName, input: true),
-          let playback = namedAudioDevice(BetaAudio.playbackName, input: false) else { return false }
-    return Set([listen, microphone, playback]).count == 3
-}
-
-// MARK: - Arayan bilgisi (banner metni + Rehber)
-
-/// Rehberden eksik bilgiyi (isim <-> numara) tamamlar
-func enrichFromContacts(_ info: CallerInfo) -> CallerInfo {
-    var out = info
-    guard CNContactStore.authorizationStatus(for: .contacts) == .authorized else {
-        logLine("Rehber izni yok; sadece banner bilgisi kullanılıyor")
-        return out
-    }
-    let store = CNContactStore()
-    let keys: [CNKeyDescriptor] = [CNContactGivenNameKey as CNKeyDescriptor,
-                                   CNContactFamilyNameKey as CNKeyDescriptor,
-                                   CNContactNicknameKey as CNKeyDescriptor,
-                                   CNContactPhoneNumbersKey as CNKeyDescriptor]
-    func fullName(_ c: CNContact) -> String {
-        let n = "\(c.givenName) \(c.familyName)".trimmingCharacters(in: .whitespaces)
-        return n.isEmpty ? c.nickname : n
-    }
-    do {
-        if !info.number.isEmpty && info.name.isEmpty {
-            let pred = CNContact.predicateForContacts(matching: CNPhoneNumber(stringValue: info.number))
-            if let c = try store.unifiedContacts(matching: pred, keysToFetch: keys).first {
-                out.name = fullName(c)
-                out.inContacts = true
-            }
-        } else if !info.name.isEmpty {
-            let pred = CNContact.predicateForContacts(matchingName: info.name)
-            var matches = try store.unifiedContacts(matching: pred, keysToFetch: keys)
-            if matches.isEmpty {
-                // takma ad ("Aşkım" gibi) için tüm kişilerde ara
-                let req = CNContactFetchRequest(keysToFetch: keys)
-                var found: [CNContact] = []
-                try store.enumerateContacts(with: req) { c, _ in
-                    if c.nickname.lowercased() == info.name.lowercased() { found.append(c) }
-                }
-                matches = found
-            }
-            if matches.count == 1, let c = matches.first,
-               fullName(c).caseInsensitiveCompare(info.name) == .orderedSame || c.nickname.caseInsensitiveCompare(info.name) == .orderedSame {
-                out.inContacts = true
-                // The actual incoming number must come from the call, not the first contact number.
-                let fn = fullName(c)
-                if !fn.isEmpty && fn.lowercased() != info.name.lowercased() { out.name = "\(info.name) (\(fn))" }
-            }
-        }
-    } catch {
-        logLine("Rehber araması başarısız: \(error)")
-    }
-    return out
-}
-
-
-
-/// Controls belong to the call source captured when answering, never another app.
-func callControl(for source: CallSource) -> AXUIElement? { CallObserver.shared.control(source) }
 
 // MARK: - Uygulama
 
@@ -421,10 +28,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var setupController: SetupController?
     var statusItem: NSStatusItem!
     var statusLine = NSMenuItem(title: "", action: nil, keyEquivalent: "")
-    var autoItem: NSMenuItem!
+    var answerItems: [AnswerMode: NSMenuItem] = [:]
     var lastNoteItem: NSMenuItem!
     var panel: NSPanel!
     var panelTitle: NSTextField!
+    var panelIcon: NSImageView!
     var answerButton: NSButton!
 
 
@@ -466,7 +74,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     lazy var mobile = MobileBridge()
     var mobileSettings: MobileSettingsController?
     var mobileItem: NSMenuItem!
-    var focusItem: NSMenuItem!
     var focusAuto = UserDefaults.standard.bool(forKey: "betaFocusAuto")
     let focusMonitor = FocusMonitor()
     var offerToken: String?
@@ -474,7 +81,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var sessionCaller = ""
     var autoMode = UserDefaults.standard.bool(forKey: "autoMode")
     var paused = UserDefaults.standard.bool(forKey: "paused")
-    var pauseItem: NSMenuItem!
     var lastPermissionState: String?
     var callFailure: (text: String, expires: Date)?
     var manualAnswer = false
@@ -492,28 +98,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var usingLegacyData = false
     var statusSymbol = ""
     var liveFollow = true
+    var quickNotePopup: NSPopUpButton!
     var recentMenu: NSMenu!
     var ringerName = ""
     var ringDiagnosticSaved = false
+    var lastUnrecognizedWarning = Date.distantPast
     var settingsCache: (modified: Date?, values: [String: String])?
     let routeQueue = DispatchQueue(label: "com.mtahca.asistan.call-route")
     var routeFallback = (UserDefaults.standard.object(forKey: "routeFallbackDefaultInput") as? Bool) ?? true
-    @objc func showPersonalization() {
-        if personalization == nil { personalization = PersonalizationController(app: self) }
-        personalization?.show()
+    var settingsWindow: SettingsWindow?
+    var historyWindow: HistoryWindowController?
+    @objc func showHistory() {
+        if historyWindow == nil { historyWindow = HistoryWindowController(app: self) }
+        historyWindow?.show()
     }
+    /// Every settings area is a tab of one window; the menu items open the matching tab.
+    func openSettings(_ tab: String) {
+        if settingsWindow == nil {
+            if setupController == nil { setupController = SetupController(app: self) }
+            if modelSettings == nil { modelSettings = ModelSettingsController(app: self) }
+            if soundPrefs == nil { soundPrefs = SoundPrefsController(app: self) }
+            if personalization == nil { personalization = PersonalizationController(app: self) }
+            if mobileSettings == nil { mobileSettings = MobileSettingsController(app: self) }
+            let window = SettingsWindow()
+            window.add("setup", "Durum ve kurulum", setupController!)
+            window.add("models", "Modeller", modelSettings!)
+            window.add("sound", "Ses", soundPrefs!)
+            window.add("personal", "Kişiselleştirme", personalization!)
+            window.add("mobile", "iPhone ve Odak", mobileSettings!)
+            window.finish()
+            settingsWindow = window
+        }
+        settingsWindow?.show(tab)
+    }
+    @objc func showPersonalization() { openSettings("personal") }
     @objc func restartFromMenu() {
         guard !busy else { notify("Görüşme sürüyor", "Görüşme bittikten sonra yeniden başlatabilirsiniz."); return }
         restartAgent()
     }
-    @objc func showModelSettings() {
-        if modelSettings == nil { modelSettings = ModelSettingsController(app: self) }
-        modelSettings?.show()
-    }
+    @objc func showModelSettings() { openSettings("models") }
     @objc func togglePaused() { setPaused(!paused) }
     func setPaused(_ value: Bool) {
         paused = value; UserDefaults.standard.set(paused, forKey: "paused")
-        pauseItem.state = paused ? .on : .off
+        refreshAnswerMenu()
         if paused { hidePanel() }
         updateStatus()
     }
@@ -539,14 +166,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         AVCaptureDevice.requestAccess(for: .audio) { ok in logLine("Mikrofon izni: \(ok)") }
         CNContactStore().requestAccess(for: .contacts) { ok, _ in logLine("Rehber izni: \(ok)") }
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+        configureNotifications()
 
         let mainMenu = NSMenu()
         let applicationItem = NSMenuItem()
         let applicationMenu = NSMenu(title: "Asistan")
-        applicationMenu.addItem(withTitle: "Kurulum ve izinleri kontrol et…", action: #selector(showSetup), keyEquivalent: ",").target = self
-        applicationMenu.addItem(withTitle: "Ses ayarları…", action: #selector(showSoundPrefs), keyEquivalent: "").target = self
-        applicationMenu.addItem(withTitle: "Kişiselleştirme…", action: #selector(showPersonalization), keyEquivalent: "").target = self
-        applicationMenu.addItem(withTitle: "Modeller ve API anahtarları…", action: #selector(showModelSettings), keyEquivalent: "").target = self
+        applicationMenu.addItem(withTitle: "Ayarlar…", action: #selector(showSetup), keyEquivalent: ",").target = self
         applicationMenu.addItem(withTitle: "Ses ajanını yeniden başlat", action: #selector(restartFromMenu), keyEquivalent: "").target = self
         applicationMenu.addItem(NSMenuItem.separator())
         applicationMenu.addItem(withTitle: "Asistan’dan çık", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
@@ -575,10 +200,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         mobile.onPause = { [weak self] on in self?.setPaused(on) }
         mobile.onChanged = { [weak self] in self?.refreshMobileMenu(); self?.mobileSettings?.refresh() }
+        mobile.setQuickNotes(QuickNotes.load())
         mobile.startIfEnabled()
         if let notes = try? FileManager.default.contentsOfDirectory(at: projectDir.appendingPathComponent("notlar"), includingPropertiesForKeys: nil) {
             lastNotePath = notes.filter { $0.pathExtension == "md" }.sorted { $0.lastPathComponent < $1.lastPathComponent }.last?.path
         }
+        publishHistory(fresh: false)
         let st = setupStatus()
         if st.audio && st.py && st.key { startAgent() } else { showSetup() }
         CallObserver.shared.start()
@@ -652,10 +279,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         updateStatus()
     }
 
-    @objc func showSetup() {
-        if setupController == nil { setupController = SetupController(app: self) }
-        setupController?.show()
-    }
+    @objc func showSetup() { openSettings("setup") }
 
     func openLog() {
         let path = projectDir.appendingPathComponent("app.log").path
@@ -691,12 +315,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let view = NSMenuItem(title: title, action: action, keyEquivalent: key)
             view.target = self; targetMenu.addItem(view); return view
         }
-        pauseItem = item("Arama karşılamayı duraklat", #selector(togglePaused), key: "p")
-        pauseItem.state = paused ? .on : .off
-        autoItem = item("Gelen aramayı otomatik cevapla", #selector(toggleAuto))
-        autoItem.state = autoMode ? .on : .off
-        focusItem = item("Odak açıkken otomatik cevapla", #selector(toggleFocusAuto))
-        focusItem.state = focusAuto ? .on : .off
+        let answerHeader = NSMenuItem(title: "Gelen aramalar", action: nil, keyEquivalent: ""); answerHeader.isEnabled = false
+        menu.addItem(answerHeader)
+        for mode in AnswerMode.allCases {
+            let entry = item(mode.title, #selector(chooseAnswerMode(_:)), key: mode == .off ? "p" : "")
+            entry.representedObject = mode.rawValue; entry.indentationLevel = 1; answerItems[mode] = entry
+        }
+        refreshAnswerMenu()
         mobileItem = item("iPhone ve Odak…", #selector(showMobileSettings))
         refreshMobileMenu()
         menu.addItem(.separator())
@@ -707,12 +332,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let recentItem = NSMenuItem(title: "Son görüşmeler", action: nil, keyEquivalent: "")
         recentMenu = NSMenu(); recentMenu.autoenablesItems = false; recentMenu.delegate = self
         recentItem.submenu = recentMenu; menu.addItem(recentItem)
-        _ = item("Notlar klasörünü aç", #selector(openNotesFolder))
+        _ = item("Tüm görüşmeler…", #selector(showHistory))
         menu.addItem(.separator())
-        _ = item("Kişiselleştirme…", #selector(showPersonalization))
-        _ = item("Ses ayarları…", #selector(showSoundPrefs))
-        _ = item("Modeller ve API anahtarları…", #selector(showModelSettings))
-        _ = item("Kurulum ve izinleri kontrol et…", #selector(showSetup))
+        _ = item("Ayarlar…", #selector(showSetup), key: ",")
+        _ = item("Kişiselleştirme ve hazır notlar…", #selector(showPersonalization))
         let advancedItem = NSMenuItem(title: "Diğer seçenekler", action: nil, keyEquivalent: "")
         let advanced = NSMenu(); advanced.autoenablesItems = false
         liveItem = item("Görüşme sırasında canlı metni göster", #selector(toggleLive), advanced)
@@ -792,18 +415,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         mobileItem.state = mobile.enabled ? .on : .off
         mobileItem.title = "iPhone ve Odak…" + (mobile.clientCount > 0 ? " (\(mobile.clientCount) cihaz)" : "")
     }
-    @objc func showMobileSettings() {
-        if mobileSettings == nil { mobileSettings = MobileSettingsController(app: self) }
-        mobileSettings?.show()
-    }
+    @objc func showMobileSettings() { openSettings("mobile") }
     func setFocusAuto(_ enabled: Bool) {
         focusAuto = enabled; UserDefaults.standard.set(enabled, forKey: "betaFocusAuto")
-        focusItem?.state = enabled ? .on : .off
+        refreshAnswerMenu()
         focusMonitor.refresh(enabled: enabled, force: true); updateStatus()
     }
-    @objc func toggleFocusAuto() {
-        setFocusAuto(!focusAuto)
-        if focusAuto && focusMonitor.active == nil { showMobileSettings() }
+    var answerMode: AnswerMode { AnswerMode.current(paused: paused, auto: autoMode, focus: focusAuto) }
+    func refreshAnswerMenu() {
+        let mode = answerMode
+        for (key, entry) in answerItems { entry.state = key == mode ? .on : .off }
+    }
+    /// The pause shortcut toggles: choosing "Kapalı" again resumes the previous choice.
+    @objc func chooseAnswerMode(_ sender: NSMenuItem) {
+        guard let mode = (sender.representedObject as? String).flatMap(AnswerMode.init(rawValue:)) else { return }
+        if mode == .off { setPaused(!paused); return }
+        let flags = mode.flags(auto: autoMode, focus: focusAuto)
+        autoMode = flags.auto; UserDefaults.standard.set(autoMode, forKey: "autoMode")
+        setFocusAuto(flags.focus)
+        if paused { setPaused(false) }
+        refreshAnswerMenu()
+        if mode == .focus && focusMonitor.active == nil { showMobileSettings() }
     }
     func publishMobileState() {
         let r = scanNotifications()
@@ -812,19 +444,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let ringer = !info.name.isEmpty ? info.name : (!info.number.isEmpty ? info.number : "Bilinmeyen arayan")
         ringerName = ringing && ringer != "Bilinmeyen arayan" ? ringer : ""
         let identity = ringing ? r.source.rawValue + "|" + ringer : ""
-        if !ringing { offerToken = nil; offerIdentity = "" }
-        else if offerToken == nil || offerIdentity != identity { offerToken = UUID().uuidString; offerIdentity = identity }
+        if !ringing {
+            if offerToken != nil { withdrawIncomingNotification() }
+            offerToken = nil; offerIdentity = ""
+        }
+        else if offerToken == nil || offerIdentity != identity {
+            offerToken = UUID().uuidString; offerIdentity = identity
+            postIncomingNotification(ringer: ringer, source: r.source)
+        }
         mobile.setState(inSession: inSession && stoppingDeadline == nil, caller: sessionCaller,
                         startedAt: sessionStarted, status: statusLine.title, ringing: ringing, ringer: ringing ? ringer : "",
                         context: inSession ? sessionID : offerToken, paused: paused, stopping: stoppingDeadline != nil,
                         source: (inSession || humanCallActive ? liveSource : (ringing ? r.source : nil)).map { $0 == .whatsapp ? "whatsapp" : "phone" } ?? "",
                         humanCall: humanCallActive)
-    }
-    @objc func toggleAuto() {
-        autoMode.toggle()
-        UserDefaults.standard.set(autoMode, forKey: "autoMode")
-        autoItem.state = autoMode ? .on : .off
-        updateStatus()
     }
     /// Metin dosyalarını Xcode yerine TextEdit ile açar
     func openInTextEdit(_ url: URL) {
@@ -847,6 +479,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let entry = NSMenuItem(title: note.title, action: #selector(openRecentNote(_:)), keyEquivalent: "")
             entry.target = self; entry.representedObject = note.url; menu.addItem(entry)
         }
+        menu.addItem(.separator())
+        let all = NSMenuItem(title: "Tüm görüşmeler…", action: #selector(showHistory), keyEquivalent: ""); all.target = self
+        menu.addItem(all)
     }
     @objc func openRecentNote(_ sender: NSMenuItem) { if let url = sender.representedObject as? URL { openInTextEdit(url) } }
     @objc func openNotesFolder() { NSWorkspace.shared.open(projectDir.appendingPathComponent("notlar")) }
@@ -879,167 +514,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
 
-    // MARK: Canlı görüşme metni
-
-    func buildLiveWindow() {
-        let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: 570),
-                         styleMask: [.titled, .closable, .resizable, .miniaturizable],
-                         backing: .buffered, defer: false)
-        w.title = "Asistan — Canlı görüşme"
-        w.level = .floating
-        w.isReleasedWhenClosed = false
-        w.collectionBehavior = [.canJoinAllSpaces]
-        w.minSize = NSSize(width: 480, height: 400)
-        let cb = w.contentView!.bounds
-        liveStatus = NSTextField(labelWithString: "Görüşme bekleniyor")
-        liveStatus.frame = NSRect(x: 12, y: cb.height - 28, width: cb.width - 24, height: 20)
-        liveStatus.autoresizingMask = [.width, .minYMargin]
-        liveStatus.textColor = .secondaryLabelColor; w.contentView!.addSubview(liveStatus)
-        let sv = NSScrollView(frame: NSRect(x: 0, y: 86, width: cb.width, height: cb.height - 120))
-        sv.hasVerticalScroller = true
-        sv.autoresizingMask = [.width, .height]
-
-        let field = NSTextField(frame: NSRect(x: 10, y: 12, width: cb.width - 114, height: 26))
-        field.placeholderString = "Asistan’a not yaz (Enter ile gönder)"
-        field.autoresizingMask = [.width]
-        field.target = self
-        field.action = #selector(sendNote)
-        w.contentView!.addSubview(field)
-        noteField = field
-        let send = NSButton(title: "Gönder", target: self, action: #selector(sendNote))
-        send.bezelStyle = .rounded
-        send.frame = NSRect(x: cb.width - 92, y: 10, width: 82, height: 30)
-        send.autoresizingMask = [.minXMargin]
-        w.contentView!.addSubview(send); sendButton = send
-        let endBtn = NSButton(title: "Sonlandır", target: self, action: #selector(endSession))
-        endBtn.bezelStyle = .rounded
-        endBtn.frame = NSRect(x: cb.width - 110, y: 48, width: 100, height: 30)
-        endBtn.autoresizingMask = [.minXMargin]
-        w.contentView!.addSubview(endBtn); endButton = endBtn
-        let take = NSButton(title: "Devral", target: self, action: #selector(takeOver))
-        take.bezelStyle = .rounded
-        take.bezelColor = .systemOrange
-        take.frame = NSRect(x: cb.width - 218, y: 48, width: 100, height: 30)
-        take.autoresizingMask = [.minXMargin]
-        w.contentView!.addSubview(take); takeButton = take
-        let copy = NSButton(title: "Kopyala", target: self, action: #selector(copyTranscript))
-        copy.bezelStyle = .rounded; copy.toolTip = "Canlı metni panoya kopyala"
-        copy.frame = NSRect(x: 10, y: 48, width: 90, height: 30)
-        w.contentView!.addSubview(copy)
-        let presets = NSPopUpButton(frame: NSRect(x: 106, y: 50, width: 150, height: 26), pullsDown: true)
-        presets.addItem(withTitle: "Hazır notlar")
-        for text in Self.quickNotes { presets.addItem(withTitle: text) }
-        presets.target = self; presets.action = #selector(chooseQuickNote(_:))
-        presets.toolTip = "Seçilen not yazı alanına eklenir; Enter ile gönderin."
-        w.contentView!.addSubview(presets)
-        let tv = NSTextView(frame: sv.bounds)
-        tv.isEditable = false
-        tv.isRichText = true
-        tv.isVerticallyResizable = true
-        tv.autoresizingMask = [.width]
-        tv.textContainerInset = NSSize(width: 10, height: 10)
-        tv.textContainer?.widthTracksTextView = true
-        sv.documentView = tv
-        w.contentView!.addSubview(sv)
-        if let s = NSScreen.main {
-            let f = s.visibleFrame
-            w.setFrameOrigin(NSPoint(x: f.maxX - 580, y: f.maxY - 600))
-        }
-        liveWindow = w
-        liveText = tv
-    }
-
-    static let quickNotes = [
-        "Şu an müsait değilim; en kısa sürede dönüş yapacağım.",
-        "Mesajını ve geri dönüş numarasını not al.",
-        "Konuyu kısaca öğren, sonra görüşmeyi kibarca bitir.",
-        "Acil bir durumsa bana hemen mesaj atmasını söyle.",
-    ]
-    @objc func chooseQuickNote(_ sender: NSPopUpButton) {
-        guard let text = sender.selectedItem?.title, Self.quickNotes.contains(text) else { return }
-        noteField.stringValue = text
-        liveWindow.makeFirstResponder(noteField)
-    }
-    @objc func copyTranscript() {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(liveText.string, forType: .string)
-    }
-    /// Follow new lines only while the reader is at the bottom; reading earlier lines must not jump.
-    func liveAtBottom() -> Bool {
-        guard let clip = liveText.enclosingScrollView?.contentView else { return true }
-        return clip.bounds.maxY >= liveText.frame.height - 40
-    }
-    func scrollLiveIfFollowing() { if liveFollow { liveText.scrollToEndOfDocument(nil) } }
-
-    func renderLiveTranscript() {
-        var phoneRows: [(String, String, String)] = []
-        if !liveCallerHeading.isEmpty { phoneRows.append(("note", "", liveCallerHeading)) }
-        for row in liveRows {
-            let speaker = row["speaker"] as? String ?? ""
-            phoneRows.append((speaker == "Arayan" ? "caller" : "assistant", speaker, row["text"] as? String ?? ""))
-        }
-        for (speaker, text, color) in liveExtras { phoneRows.append((color == nil ? "note" : "you", speaker, text)) }
-        mobile.replace(phoneRows)
-        liveFollow = liveAtBottom()
-        let offset = liveText.enclosingScrollView?.contentView.bounds.origin
-        renderingLive = true
-        defer {
-            renderingLive = false
-            if !liveFollow, let offset = offset, let scroll = liveText.enclosingScrollView {
-                scroll.contentView.scroll(to: offset); scroll.reflectScrolledClipView(scroll.contentView)
-            }
-        }
-        liveText.string = ""
-        appendLiveNote(liveCallerHeading)
-        for row in liveRows {
-            let speaker = row["speaker"] as? String ?? ""
-            appendLive(speaker, row["text"] as? String ?? "", color: speaker == "Arayan" ? .systemBlue : .systemGreen)
-        }
-        for (speaker, text, color) in liveExtras {
-            if let color = color { appendLive(speaker, text, color: color) }
-            else { appendLiveNote(text) }
-        }
-    }
-    func appendLive(_ speaker: String, _ text: String, color: NSColor) {
-        if !renderingLive {
-            liveFollow = liveAtBottom()
-            liveExtras.append((speaker, text, color))
-            mobile.append(kind: speaker == "Arayan" ? "caller" : (speaker == "Asistan" ? "assistant" : "you"), speaker: speaker, text: text)
-        }
-        let a = NSMutableAttributedString()
-        a.append(NSAttributedString(string: speaker + ": ", attributes: [
-            .font: NSFont.boldSystemFont(ofSize: 13), .foregroundColor: color]))
-        a.append(NSAttributedString(string: text + "\n\n", attributes: [
-            .font: NSFont.systemFont(ofSize: 13), .foregroundColor: NSColor.labelColor]))
-        liveText.textStorage?.append(a)
-        scrollLiveIfFollowing()
-    }
-
-    func appendLiveNote(_ text: String) {
-        if !renderingLive {
-            liveFollow = liveAtBottom()
-            if text != liveCallerHeading { liveExtras.append(("", text, nil)) }
-            mobile.append(kind: text.contains("Arayan araya girdi") ? "interrupted" : "note", speaker: "", text: text)
-        }
-        liveText.textStorage?.append(NSAttributedString(string: text + "\n\n", attributes: [
-            .font: NSFont.systemFont(ofSize: 12), .foregroundColor: NSColor.secondaryLabelColor]))
-        scrollLiveIfFollowing()
-    }
-
-    /// Yazılan notu çalışan ajana iletir; ajan bunu konuşmanın akışında arayana söyler
-    @objc func sendNote() {
-        if deliverNote(noteField.stringValue, fromPhone: false) { noteField.stringValue = "" }
-    }
-    @discardableResult func deliverNote(_ raw: String, fromPhone: Bool) -> Bool {
-        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, inSession, stoppingDeadline == nil, let sid = sessionID else { appendLiveNote("Not gönderilemedi: etkin görüşme yok."); return false }
-        guard text.unicodeScalars.count <= 1000 else { appendLiveNote("Not en fazla 1000 karakter olabilir."); return false }
-        if sendCommand(["command": "note", "session_id": sid, "note_id": UUID().uuidString, "text": text]) {
-            appendLive(fromPhone ? "iPhone'dan notun" : "Senin notun", text + " (kabul bekleniyor)", color: .systemPurple)
-            return true
-        }
-        appendLiveNote("Not gönderilemedi; yeniden deneyin."); return false
-    }
 
     /// Görüşmeyi devral: asistan susar; fiziksel mikrofon sabit Loopback hattına aktarılır.
     var tookOver = false
@@ -1112,10 +586,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         return builtinDevice(input: true).map(deviceName) ?? ""
     }
-    @objc func showSoundPrefs() {
-        if soundPrefs == nil { soundPrefs = SoundPrefsController(app: self) }
-        soundPrefs?.show()
-    }
+    @objc func showSoundPrefs() { openSettings("sound") }
 
     @objc func dumpDiag() {
         DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
@@ -1143,64 +614,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// Ajan çıktısındaki satırı ("[13:58:08] ARAYAN: ...") canlı pencereye yansıtır
 
-    // MARK: Panel (gelen aramada gösterilen küçük pencere)
-
-    func buildPanel() {
-        let w: CGFloat = 330, h: CGFloat = 96
-        let p = NSPanel(contentRect: NSRect(x: 0, y: 0, width: w, height: h),
-                        styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
-        p.level = .floating
-        p.isFloatingPanel = true
-        p.hidesOnDeactivate = false
-        p.backgroundColor = .clear
-        p.isOpaque = false
-        p.hasShadow = true
-        p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-
-        let fx = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: w, height: h))
-        fx.material = .hudWindow
-        fx.state = .active
-        fx.wantsLayer = true
-        fx.layer?.cornerRadius = 14
-        fx.layer?.masksToBounds = true
-
-        panelTitle = NSTextField(labelWithString: "Gelen arama")
-        panelTitle.font = NSFont.boldSystemFont(ofSize: 14)
-        panelTitle.frame = NSRect(x: 16, y: 62, width: w - 32, height: 20)
-        fx.addSubview(panelTitle)
-
-        answerButton = NSButton(title: "Asistan ile Cevapla", target: self, action: #selector(answerWithAssistant))
-        answerButton.bezelStyle = .rounded
-        answerButton.frame = NSRect(x: 16, y: 16, width: 190, height: 32)
-        fx.addSubview(answerButton)
-
-        let close = NSButton(title: "Kapat", target: self, action: #selector(dismissPanel))
-        close.bezelStyle = .rounded
-        close.frame = NSRect(x: 216, y: 16, width: 98, height: 32)
-        fx.addSubview(close)
-
-        p.contentView = fx
-        panel = p
-    }
-
-    func showPanel() {
-        if panel.isVisible { return }
-        let ready = agentReady && !busy && loopbackAudioReady()
-        panelTitle.stringValue = ready ? "Gelen arama" : (busy ? "Asistan başka görüşmede" : "Asistan yükleniyor…")
-        answerButton.isEnabled = ready
-        if let s = NSScreen.main {
-            let f = s.visibleFrame
-            panel.setFrameOrigin(NSPoint(x: f.midX - panel.frame.width / 2, y: f.maxY - panel.frame.height - 12))
-        }
-        panel.orderFrontRegardless()
-    }
-
-    func hidePanel() { if panel.isVisible { panel.orderOut(nil) } }
-
-    @objc func dismissPanel() {
-        dismissed = true
-        hidePanel()
-    }
 
     // MARK: Arama izleme
 
@@ -1243,6 +656,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             showPanel()
             if FocusPolicy.shouldAnswer(manualAuto: autoMode, focusAuto: focusAuto, focused: focusMonitor.active, paused: paused), agentReady, setupStatus().perms, loopbackAudioReady(), callControl(for: .apple) == nil, callControl(for: .whatsapp) == nil { beginAnswer(manual: false) }
         }
+        if !busy, let unknown = CallObserver.shared.unrecognized(), Date().timeIntervalSince(lastUnrecognizedWarning) > 120 {
+            lastUnrecognizedWarning = Date()
+            writeRingDiagnostic(unknown, heading: "Cevaplama düğmesi bulunamadı")
+            callFailure = ("Gelen arama tanınamadı; aramayı elle cevaplayın", Date().addingTimeInterval(60))
+            notify("Gelen arama tanınamadı", "\(unknown.source.rawValue) aramasında cevaplama düğmesi beklenen adla bulunamadı; uygulama güncellenmiş olabilir. Aramayı elle cevaplayın. Ayrıntılar son_arama_tani.txt dosyasında.")
+        }
         if missing >= 2 { hidePanel() }
         if missing > 5 && !busy { answered = false; dismissed = false; bannerTexts = []; ringDiagnosticSaved = false }
         updateStatus()
@@ -1255,14 +674,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let info = extractCaller(from: result.texts, source: result.source)
         guard info.name.isEmpty && info.number.isEmpty else { return }
         ringDiagnosticSaved = true
+        writeRingDiagnostic(result, heading: "Arayan bulunamadı")
+    }
+    /// The banner's raw accessibility labels, kept so matching rules can be fixed from real data.
+    func writeRingDiagnostic(_ result: ScanResult, heading: String) {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?"
-        var out = "Arayan bulunamadı — \(Date())\nSürüm: \(version) · Derleme \(build)\nKaynak: \(result.source.rawValue)\n\n"
+        var out = "\(heading) — \(Date())\nSürüm: \(version) · Derleme \(build)\nKaynak: \(result.source.rawValue)\n\n"
         for label in result.texts { out += "\(label.role) \(label.attribute): \(label.value.replacingOccurrences(of: "\n", with: "⏎"))\n" }
         let url = projectDir.appendingPathComponent("son_arama_tani.txt")
         try? out.write(to: url, atomically: true, encoding: .utf8)
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
-        logLine("Arayan bulunamadı; bildirim yapısı kaydedildi: \(url.lastPathComponent)")
+        logLine("\(heading); bildirim yapısı kaydedildi: \(url.lastPathComponent)")
     }
 
     /// Bildirimdeki "cevapla" düğmesine basar
@@ -1386,6 +809,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             if let path = event["path"] as? String, validNotePath(path) {
                 if !busy && (lastNotePath == nil || lastNotePath == path) { lastNotePath = path }
                 notify(kind == "summary_saved" ? "Arama özeti hazır" : "Döküm kaydedildi; özet hazırlanamadı", (path as NSString).lastPathComponent)
+                publishHistory(fresh: kind == "summary_saved")
             }
             updateStatus(); return
         }
@@ -1458,6 +882,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard let handle = agentInput, let data = try? JSONSerialization.data(withJSONObject: command) else { return false }
         do { try handle.write(contentsOf: data + Data([10])); return true }
         catch { logLine("Ajan komutu iletilemedi"); return false }
+    }
+    func publishHistory(fresh: Bool) {
+        mobile.setHistory(RecentNotes.historyItems(in: projectDir.appendingPathComponent("notlar")), fresh: fresh)
+    }
+    func quickNotesChanged() {
+        mobile.setQuickNotes(QuickNotes.load()); rebuildQuickNotes()
     }
     func validNotePath(_ path: String) -> Bool {
         RecentNotes.isNote(path: path, in: projectDir.appendingPathComponent("notlar"))
@@ -1551,101 +981,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 }
 
-// MARK: - Ses ayarları penceresi
-
-final class SoundPrefsController: NSObject {
-    let app: AppDelegate
-    var window: NSWindow!
-    var info: NSTextField!
-    var microphones: NSPopUpButton!
-    var feedback: NSTextField!
-    var routeInfo: NSTextField!
-    var routeButton: NSButton!
-    var fallbackToggle: NSButton!
-    init(app: AppDelegate) { self.app = app; super.init() }
-    func build() {
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 540, height: 540), styleMask: [.titled, .closable], backing: .buffered, defer: false)
-        window.title = "Asistan — Kalıcı ses hattı"; window.isReleasedWhenClosed = false
-        let content = window.contentView!
-        let title = NSTextField(labelWithString: "Ses hattı: Loopback")
-        title.font = .boldSystemFont(ofSize: 16); title.frame = NSRect(x: 20, y: 496, width: 500, height: 24); content.addSubview(title)
-        info = NSTextField(wrappingLabelWithString: "")
-        info.isSelectable = true; info.frame = NSRect(x: 20, y: 350, width: 500, height: 142); content.addSubview(info)
-        let micLabel = NSTextField(labelWithString: "Devralırken kullanacağım mikrofon")
-        micLabel.frame = NSRect(x: 20, y: 320, width: 500, height: 22); content.addSubview(micLabel)
-        microphones = NSPopUpButton(frame: NSRect(x: 20, y: 285, width: 500, height: 30), pullsDown: false)
-        microphones.target = self; microphones.action = #selector(selectMicrophone); content.addSubview(microphones)
-        feedback = NSTextField(wrappingLabelWithString: "")
-        feedback.frame = NSRect(x: 20, y: 236, width: 500, height: 44); content.addSubview(feedback)
-        let refresh = NSButton(title: "Durumu yenile", target: self, action: #selector(refresh))
-        refresh.bezelStyle = .rounded; refresh.frame = NSRect(x: 20, y: 198, width: 140, height: 30); content.addSubview(refresh)
-        let open = NSButton(title: "Loopback’i aç", target: self, action: #selector(openLoopback))
-        open.bezelStyle = .rounded; open.frame = NSRect(x: 176, y: 198, width: 160, height: 30); content.addSubview(open)
-        let routeTitle = NSTextField(labelWithString: "Arama uygulamalarının mikrofonu ve hoparlörü")
-        routeTitle.font = .boldSystemFont(ofSize: 13); routeTitle.frame = NSRect(x: 20, y: 162, width: 500, height: 20); content.addSubview(routeTitle)
-        routeInfo = NSTextField(wrappingLabelWithString: "Her görüşmede Asistan, Telefon/FaceTime/WhatsApp menüsünden mikrofonu Asistan Mikrofonu yapar ve macOS’tan doğrular. Görüşmeden önce denetlemek için aşağıdaki düğmeyi kullanın.")
-        routeInfo.isSelectable = true; routeInfo.frame = NSRect(x: 20, y: 82, width: 500, height: 76); content.addSubview(routeInfo)
-        fallbackToggle = NSButton(checkboxWithTitle: "Doğrulanamazsa görüşme süresince sistem mikrofonunu Asistan Mikrofonu yap", target: self, action: #selector(toggleFallback))
-        fallbackToggle.frame = NSRect(x: 20, y: 52, width: 500, height: 22); content.addSubview(fallbackToggle)
-        routeButton = NSButton(title: "Uygulamaları denetle ve düzelt", target: self, action: #selector(checkCallApps))
-        routeButton.bezelStyle = .rounded; routeButton.frame = NSRect(x: 20, y: 14, width: 260, height: 30); content.addSubview(routeButton)
-    }
-    @objc func toggleFallback() {
-        app.routeFallback = fallbackToggle.state == .on
-        UserDefaults.standard.set(app.routeFallback, forKey: "routeFallbackDefaultInput")
-    }
-    @objc func checkCallApps() {
-        guard !app.busy else { routeInfo.stringValue = "Görüşme sürüyor; bu görüşmenin ses hattı zaten otomatik denetleniyor."; return }
-        routeButton.isEnabled = false; routeInfo.stringValue = "Denetleniyor… Uygulamalar kısa süre öne gelebilir."
-        let preferred = getDefault(kAudioHardwarePropertyDefaultOutputDevice).map(deviceName)
-        app.routeQueue.async { [weak self] in
-            var reports: [RouteReport] = []
-            for target in CallAudioRoute.apps {
-                let report = CallAudioRoute.check(bundleID: target.bundleID, name: target.name, apply: true, preferredOutput: preferred)
-                // WhatsApp has two identifiers; show the running one only.
-                if let index = reports.firstIndex(where: { $0.app == report.app }) {
-                    if !reports[index].running { reports[index] = report }
-                } else { reports.append(report) }
-            }
-            let lines = reports.map { $0.summary }.joined(separator: "\n")
-            DispatchQueue.main.async {
-                guard let self = self else { return }
-                self.routeButton.isEnabled = true
-                self.routeInfo.stringValue = lines + "\nÇalışmayan uygulamayı açıp yeniden deneyin. Liste bulunamazsa o uygulamanın menüsünden mikrofonu elle Asistan Mikrofonu seçin."
-            }
-        }
-    }
-    @objc func refresh() {
-        let listen = namedAudioDevice(BetaAudio.listenName, input: true) != nil
-        let mic = namedAudioDevice(BetaAudio.microphoneName, input: true) != nil
-        let playback = namedAudioDevice(BetaAudio.playbackName, input: false) != nil
-        info.stringValue = "\(listen ? "✅" : "⬜️") Arayanın sesi: Asistan Dinleme\n\(playback ? "✅" : "⬜️") Asistan’ın sesi: Asistan Ses Çıkışı\n\(mic ? "✅" : "⬜️") Arama uygulamalarının mikrofonu: Asistan Mikrofonu\n\nArama başında ve sonunda aygıt değiştirilmez.\nDevral’da kendi mikrofonunuz aynı hatta aktarılır."
-        let selected = UserDefaults.standard.string(forKey: "humanMicrophoneUID") ?? ""
-        microphones.removeAllItems(); microphones.addItem(withTitle: "Yerleşik mikrofon (otomatik)")
-        microphones.lastItem?.representedObject = ""
-        for device in allDevices().filter({ hasStreams($0, input: true) && transportType($0) != kAudioDeviceTransportTypeVirtual }) {
-            let uid = deviceUIDString(device)
-            if uid.isEmpty { continue }
-            microphones.addItem(withTitle: deviceName(device)); microphones.lastItem?.representedObject = uid
-        }
-        if let item = microphones.itemArray.first(where: { ($0.representedObject as? String) == selected }) { microphones.select(item) }
-        else {
-            microphones.addItem(withTitle: "Seçili mikrofon bağlı değil")
-            microphones.lastItem?.representedObject = selected; microphones.select(microphones.lastItem)
-        }
-        fallbackToggle.state = app.routeFallback ? .on : .off
-        feedback.stringValue = "Seçim bir sonraki aramada kullanılır. Sistem ses ayarları değiştirilmez. Bağlı olmayan mikrofonla Devral sesi açılamaz."
-    }
-    @objc func selectMicrophone() {
-        guard let uid = microphones.selectedItem?.representedObject as? String else { return }
-        UserDefaults.standard.set(uid, forKey: "humanMicrophoneUID")
-        feedback.stringValue = "Kaydedildi. Bir sonraki aramada Devral için bu mikrofon kullanılacak."
-    }
-    @objc func openLoopback() {
-        NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: "/Applications/Loopback.app"), configuration: NSWorkspace.OpenConfiguration())
-    }
-    func show() { if window == nil { build() }; refresh(); window.center(); window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true) }
-}
 
 // Beta's preferences (mobile pairing code, auto-answer choices) carry over before any are read.
 AppMigration.migratePreferences(legacy: UserDefaults.standard.persistentDomain(forName: AppMigration.legacyBundleID), into: .standard)

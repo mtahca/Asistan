@@ -7,7 +7,7 @@ export CLANG_MODULE_CACHE_PATH="$BUILD_CACHE"
 export SWIFT_MODULECACHE_PATH="$BUILD_CACHE"
 APP="${ASISTAN_BUILD_OUTPUT:-Asistan.app}"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-swiftc -O -module-cache-path "$BUILD_CACHE" -o "$APP/Contents/MacOS/Asistan" app/main.swift app/Migration.swift app/Protocol.swift app/ModelConfiguration.swift app/ModelSettings.swift app/CallPolicy.swift app/CallerIdentity.swift app/AssistantPreferences.swift app/Personalization.swift app/Setup.swift app/MobileProtocol.swift app/MobileBridge.swift app/MobileSettings.swift app/FocusMonitor.swift app/RecentNotes.swift app/MenuRoute.swift app/CallAudioRoute.swift
+swiftc -O -module-cache-path "$BUILD_CACHE" -o "$APP/Contents/MacOS/Asistan" app/*.swift
 cp app/Info.plist "$APP/Contents/Info.plist"
 iconutil -c icns app/AppIcon.iconset -o "$APP/Contents/Resources/AppIcon.icns"
 cp agent.py llm.py live.py setup.sh requirements.txt requirements.lock requirements-online.lock "$APP/Contents/Resources/"
@@ -18,4 +18,4 @@ IDENT=$(/usr/bin/security find-identity -p codesigning 2>/dev/null | /usr/bin/aw
 if [ -z "$IDENT" ]; then IDENT="-"; echo "Uyarı: AsistanLocal kimliği yok; geçici imza kullanılıyor (bash make_cert.sh ile oluşturabilirsiniz)."; fi
 codesign --force --sign "$IDENT" "$APP"
 codesign --verify --strict "$APP"
-echo "Asistan derlendi: $(pwd)/$APP"
+echo "Asistan derlendi: $(cd "$(dirname "$APP")" && pwd)/$(basename "$APP")"

@@ -7,6 +7,10 @@ import Foundation
         precondition(!CallUI.answer("Start voice call with Ayşe"))
         precondition(!CallUI.answer("Accept invitation"))
         precondition(!CallUI.answer("Do not accept"))
+        precondition(CallUI.answerIdentifier("callUI_acceptButton"))
+        precondition(!CallUI.answerIdentifier("Accept"))
+        precondition(CallUI.endIdentifier("end_call"))
+        precondition(!CallUI.endIdentifier("Close"))
         precondition(CallUI.decline("‎Decline"))
         precondition(CallUI.end("‎End Call"))
         precondition(!CallUI.end("Close"))
@@ -50,6 +54,6 @@ import Foundation
         precondition(!CallUI.voiceIncoming(["Deniz - WhatsApp video call", "Accept", "Decline"]))
         precondition(!CallUI.voiceIncoming(["WhatsApp voice call", "WhatsApp video call", "Accept", "Decline"]))
         precondition(!CallUI.voiceIncoming(["WhatsApp voice call", "Accept invitation", "Decline"]))
-        print("Arama ayırma: 44 kontrol başarılı.")
+        print("Arama ayırma: 48 kontrol başarılı.")
     }
 }

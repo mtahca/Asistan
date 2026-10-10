@@ -29,6 +29,13 @@ import Foundation
         try Data("{broken".utf8).write(to: path)
         do { _ = try AssistantPreferences.load(from: path); preconditionFailure("Broken file accepted") } catch { count += 1 }
         check(try Data(contentsOf: path) == Data("{broken".utf8))
+        check(try QuickNotes.parse("  Bir \n\n İki ") == ["Bir", "İki"])
+        do { _ = try QuickNotes.parse((1...9).map(String.init).joined(separator: "\n")); preconditionFailure("Too many notes accepted") } catch { count += 1 }
+        do { _ = try QuickNotes.parse(String(repeating: "a", count: 201)); preconditionFailure("Long note accepted") } catch { count += 1 }
+        let suite = UserDefaults(suiteName: "AsistanQuickNotesTests-\(UUID().uuidString)")!
+        check(QuickNotes.load(from: suite) == QuickNotes.defaults)
+        QuickNotes.save(["Özel"], to: suite); check(QuickNotes.load(from: suite) == ["Özel"])
+        QuickNotes.save([], to: suite); check(QuickNotes.load(from: suite) == QuickNotes.defaults)
         print("Kişiselleştirme: \(count) kontrol başarılı.")
     }
 }

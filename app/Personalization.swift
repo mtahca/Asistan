@@ -1,6 +1,6 @@
 import Cocoa
 
-final class PersonalizationController: NSObject {
+final class PersonalizationController: NSObject, SettingsPane {
     let app: AppDelegate
     var window: NSWindow!
     var editors: [String: NSTextView] = [:]
@@ -20,7 +20,8 @@ final class PersonalizationController: NSObject {
             ("general", "Genel talimat", "Kalıcı konuşma tercihlerinizi ve iletilmesini istediğiniz bilgileri yazın. En fazla 8000 karakter."),
             ("today", "Bugünün notu", "Yalnızca bugün geçerli bilgi. Yarın yeni aramalarda kullanılmaz. En fazla 4000 karakter."),
             ("greeting", "Karşılama", "Boş bırakırsanız mevcut karşılama kullanılır. Özel metninizde yapay zekâ asistanı olduğunu belirtin. En fazla 500 karakter."),
-            ("aliases", "Hitaplar", "Her satıra ekranda görünen adı ve hitabı yazın: Aşkım=Ayşe Hanım. Yalnızca tam ad eşleşir; ad veya cinsiyet tahmin edilmez.")
+            ("aliases", "Hitaplar", "Her satıra ekranda görünen adı ve hitabı yazın: Aşkım=Ayşe Hanım. Yalnızca tam ad eşleşir; ad veya cinsiyet tahmin edilmez."),
+            ("quick", "Hazır notlar", "Görüşme sırasında tek dokunuşla eklenen talimatlar. Her satıra bir not yazın; en fazla 8 not, her biri 200 karakter. Boş bırakırsanız varsayılan notlar kullanılır. iPhone'da da aynı notlar görünür.")
         ] {
             let item = NSTabViewItem(identifier: key); item.label = title
             let view = NSView(frame: NSRect(x: 0, y: 0, width: 520, height: 290))
@@ -48,19 +49,20 @@ final class PersonalizationController: NSObject {
         let save = NSButton(title: "Kaydet", target: self, action: #selector(save))
         save.bezelStyle = .rounded; save.frame = NSRect(x: 430, y: 10, width: 130, height: 30); content.addSubview(save)
     }
-    func show() {
+    func paneClosed() {}
+    func prepare() {
         do {
             let prefs = try AssistantPreferences.load(from: preferencesURL)
             editors["general"]?.string = prefs.general
             editors["today"]?.string = prefs.todayDate == AssistantPreferences.dateKey() ? prefs.today : ""
             editors["greeting"]?.string = prefs.greeting
             editors["aliases"]?.string = prefs.aliases.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: "\n")
+            editors["quick"]?.string = QuickNotes.load().joined(separator: "\n")
             loadedDate = AssistantPreferences.dateKey(); dateLabel.stringValue = "Geçerli tarih: " + loadedDate
             canSave = true; feedback.stringValue = "Kaydedilen tercihler bir sonraki aramada uygulanır. Etkin görüşme kendi ayarlarıyla devam eder."
         } catch {
             canSave = false; feedback.stringValue = "Ayarlar okunamadı; mevcut dosya korunuyor: " + error.localizedDescription
         }
-        window.center(); window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
     }
     @objc func clearToday() { editors["today"]?.string = ""; feedback.stringValue = "Temizlemeyi uygulamak için Kaydet’e basın." }
     @objc func save() {
@@ -75,7 +77,9 @@ final class PersonalizationController: NSObject {
             prefs.todayDate = prefs.today.isEmpty ? "" : loadedDate
             prefs.greeting = editors["greeting"]!.string.trimmingCharacters(in: .whitespacesAndNewlines)
             prefs.aliases = try AssistantPreferences.parseAliases(editors["aliases"]!.string)
+            let quick = try QuickNotes.parse(editors["quick"]!.string)
             try prefs.save(to: preferencesURL)
+            QuickNotes.save(quick); app.quickNotesChanged()
             feedback.stringValue = "Kaydedildi. Bir sonraki aramada uygulanacak."
         } catch { feedback.stringValue = error.localizedDescription }
     }

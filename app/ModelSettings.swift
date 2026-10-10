@@ -1,6 +1,6 @@
 import Cocoa
 
-final class ModelSettingsController: NSObject {
+final class ModelSettingsController: NSObject, SettingsPane {
     let app: AppDelegate
     var window: NSWindow!
     var mode: NSPopUpButton!
@@ -96,7 +96,8 @@ final class ModelSettingsController: NSObject {
         let openai = (values["OPENAI_API_KEY"]?.count ?? 0) > 20
         keyStatus.stringValue = "Kayıtlı anahtar: Anthropic " + (anthropic ? "✓" : "yok") + " · OpenAI " + (openai ? "✓" : "yok") + " — bağlantıyı kurulum ekranından sınayın."
     }
-    func show() {
+    func paneClosed() {}
+    func prepare() {
         let values = app.savedSettings()
         owner.stringValue = values["OWNER_NAME"] ?? "Mehmet"
         choose(mode, id: (try? BetaModelConfiguration.voiceMode(in: values)) ?? "local")
@@ -112,7 +113,6 @@ final class ModelSettingsController: NSObject {
         speed.doubleValue = min(1.2, max(0.85, Double(values["TTS_SPEED"] ?? "1") ?? 1)); updateSpeed()
         noiseGate.state = (values["LIVE_NOISE_GATE"] ?? "on").lowercased() == "off" ? .off : .on
         anthropicKey.stringValue = ""; openAIKey.stringValue = ""; refreshKeys(values)
-        window.center(); window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
     }
     @objc func save() {
         guard !app.busy, app.setupController?.installing != true, app.setupController?.checkingAPI != true else { feedback.stringValue = "Görüşme, kurulum veya bağlantı testi sürüyor. Bittikten sonra kaydedin."; return }

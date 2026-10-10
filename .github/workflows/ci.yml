@@ -1,0 +1,27 @@
+name: CI
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # Testler yerel ses modellerini yüklemez; yalnızca içe aktarılan paketler gerekir.
+      - name: Python paketleri
+        run: python -m pip install numpy httpx==0.28.1 sounddevice anthropic
+      - name: Testler
+        run: ASISTAN_PYTHON="$(which python)" bash test.sh
+      - name: Uygulamayı derle
+        run: ASISTAN_BUILD_OUTPUT="$RUNNER_TEMP/Asistan.app" bash build.sh
+      # Asistan Mobile'daki AsistanCanli/MobileProtocol.swift ile birebir aynı olmalı. Aynı adlı dal varsa onunla, yoksa varsayılan dalla karşılaştırılır.
+      - name: Ortak protokol dosyasını karşılaştır
+        run: |
+          branch="${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}"
+          curl -fsSL "https://raw.githubusercontent.com/mtahca/Asistan-Mobile/$branch/AsistanCanli/MobileProtocol.swift" -o "$RUNNER_TEMP/mobile.swift" \
+            || curl -fsSL "https://raw.githubusercontent.com/mtahca/Asistan-Mobile/HEAD/AsistanCanli/MobileProtocol.swift" -o "$RUNNER_TEMP/mobile.swift"
+          diff -u app/MobileProtocol.swift "$RUNNER_TEMP/mobile.swift"

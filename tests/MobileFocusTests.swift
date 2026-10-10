@@ -10,6 +10,19 @@ import Foundation
         check(LiveProtocol.serviceName(host: String(repeating: "🦊", count: 80)).utf8.count <= 63)
         check(LiveProtocol.serviceName(host: "Mehmet").hasSuffix(" — Asistan"))
         check(LiveProtocol.serviceName(host: "") == "Mac — Asistan")
+        check(LiveProtocol.securePort != LiveProtocol.port && LiveProtocol.secureServiceType != LiveProtocol.serviceType)
+        check(LiveProtocol.capabilities.contains("pause") && LiveProtocol.capabilities.contains("secure"))
+        let key = PairingLink.newKey(); check(key.count == 32 && key != PairingLink.newKey())
+        let link = PairingLink(key: key, mac: "Mehmet’in MacBook’u — Asistan", hosts: ["192.168.1.20", "10.0.0.5"])
+        check(link.url.hasPrefix("asistan://pair?"))
+        check(PairingLink(link.url) == link)
+        check(PairingLink("  " + link.url + "\n") == link)
+        check(PairingLink(link.url.replacingOccurrences(of: "asistan://", with: "https://")) == nil)
+        check(PairingLink("asistan://pair?k=" + PairingLink.encode(Data(repeating: 1, count: 16)) + "&n=Mac") == nil)
+        check(PairingLink("asistan://pair?n=Mac") == nil)
+        check(PairingLink("asistan://pair?k=" + PairingLink.encode(key))?.hosts == [])
+        check(PairingLink.decode(PairingLink.encode(Data([0xfb, 0xff, 0x00]))) == Data([0xfb, 0xff, 0x00]))
+        check(!PairingLink.encode(Data(repeating: 0xff, count: 32)).contains(where: { "+/=".contains($0) }))
         var decoder = MobileFrames(); var objects: [[String: Any]] = []
         let packet = LiveProtocol.encode(["t": "note", "text": "Merhaba 🌍\nBir dakika"] )!
         for byte in packet { objects += try decoder.consume(Data([byte])) }
@@ -18,6 +31,8 @@ import Foundation
         check(try decoder.consume(Data("{\"t\":\"ping\"}\n{\"t\":\"answer\"}\n".utf8)).count == 2)
         var tooBig = MobileFrames()
         do { _ = try tooBig.consume(Data(repeating: 65, count: MobileFrames.limit + 1)); check(false) } catch { check(true) }
+        var large = MobileFrames(limit: 1 << 20)
+        check(try large.consume(LiveProtocol.encode(["t": "snapshot", "text": String(repeating: "a", count: 100_000)])!).count == 1)
         var malformed = MobileFrames()
         do { _ = try malformed.consume(Data("[]\n".utf8)); check(false) } catch { check(true) }
         check(MobileCommand.parse(["t": "shutdown"]) == nil)
