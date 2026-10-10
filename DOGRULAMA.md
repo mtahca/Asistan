@@ -4,6 +4,8 @@
 
 - **Döküm ve gürültü:** `is_hallucination` testleri ("Altyazı M.K." elenir, kısa sorular ve gerçek cümleler kalır); döküm satırında saat ve geçen süre; gürültüyle kesilen karşılamanın bir kez yeniden söylenmesi.
 
+- **Model seçenekleri:** `test_speech_gemini.py` (Deepgram isteği ve hata mesajları, Apple yardımcısıyla satır protokolü, Gemini kurulum mesajı, ses/döküm/kesilme/oturum devamı, vedalaşma, notlar); Swift model ayarı testleri (Gemini ve Deepgram anahtar gereksinimi, geçersiz seçimler).
+
 Gerçek aramada denenmesi gerekenler: canlı pencerede balonların yatay okunması; karşılamanın arayan konuşmadan duyulması; Mac uykudan uyanınca veya Wi-Fi değişince iPhone'un yeniden bağlanması (`app.log`'da "Mobil bağlantı durdu" ve ardından "hazır" satırı).
 
 ## 0.8.11

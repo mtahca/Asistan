@@ -242,7 +242,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let fm = FileManager.default
         let pyExe = fm.isExecutableFile(atPath: projectDir.appendingPathComponent(".venv/bin/python").path)
         let mode = (try? BetaModelConfiguration.voiceMode(in: savedSettings())) ?? "local"
-        let marker = fm.fileExists(atPath: projectDir.appendingPathComponent(".deps_ok").path) || (mode == "gpt-live" && fm.fileExists(atPath: projectDir.appendingPathComponent(".deps_ok_online").path))
+        let marker = fm.fileExists(atPath: projectDir.appendingPathComponent(".deps_ok").path) || (mode != "local" && fm.fileExists(atPath: projectDir.appendingPathComponent(".deps_ok_online").path))
         let py = pyExe && marker
         let values = savedSettings()
         let key = (try? BetaModelConfiguration.missingCredentials(in: values).isEmpty) ?? false
@@ -746,6 +746,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         env["BETA_AUDIO_INPUT"] = BetaAudio.listenName
         env["BETA_AUDIO_OUTPUT"] = BetaAudio.playbackName
         env["BETA_HUMAN_MIC"] = builtinDevice(input: true).map(deviceName) ?? ""
+        if let helper = Bundle.main.executableURL?.deletingLastPathComponent().appendingPathComponent("asistan-speech") { env["ASISTAN_SPEECH_HELPER"] = helper.path }
         p.environment = env
         let input = Pipe(); p.standardInput = input; agentInput = input.fileHandleForWriting
         let pipe = Pipe(); p.standardOutput = pipe

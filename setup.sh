@@ -3,6 +3,8 @@ set -euo pipefail
 DATA="${1:?veri klasörü gerekli}"
 RES="${2:?kaynak klasörü gerekli}"
 MODE="${3:-local}"
+# Both online voice modes (GPT-Live, Gemini Live) share the light online dependency set.
+if [ "$MODE" = "gemini-live" ]; then MODE="gpt-live"; fi
 if [ "$MODE" != "local" ] && [ "$MODE" != "gpt-live" ]; then exit 1; fi
 mkdir -p "$DATA/bin"
 chmod 700 "$DATA"

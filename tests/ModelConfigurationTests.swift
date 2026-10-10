@@ -64,6 +64,28 @@ import Foundation
             do { _ = try BetaModelConfiguration.updating(keys, with: ["GPT_LIVE_VOICE": voice]); preconditionFailure("Invalid voice accepted") } catch { count += 1 }
         }
         do { _ = try BetaModelConfiguration.requiredProviders(in: ["VOICE_MODE":"gpt-live", "GPT_LIVE_VOICE":"unknown"]); preconditionFailure("Invalid online voice accepted") } catch { count += 1 }
+        // Gemini Live and the speech-to-text choices
+        let gemini = ["VOICE_MODE":"gemini-live", "ANTHROPIC_API_KEY":"private-anthropic-example-key"]
+        check(try BetaModelConfiguration.requiredProviders(in: gemini) == ["anthropic", "google"])
+        check(try BetaModelConfiguration.missingCredentials(in: gemini) == ["google"])
+        check(try BetaModelConfiguration.missingCredentials(in: gemini.merging(["GEMINI_API_KEY":"AIza-private-example-gemini-key"], uniquingKeysWith: { _, new in new })).isEmpty)
+        check(try BetaModelConfiguration.geminiVoice(in: [:]) == "Kore")
+        check(try BetaModelConfiguration.geminiModel(in: [:]) == "gemini-3.8-live")
+        check(try BetaModelConfiguration.geminiModel(in: ["GEMINI_LIVE_MODEL":"gemini-3.1-flash-live-preview"]) == "gemini-3.1-flash-live-preview")
+        check(BetaModelConfiguration.geminiModelTitle(in: ["GEMINI_LIVE_MODEL":"gemini-3.1-flash-live-preview"]) == "Gemini 3.1 Flash Live")
+        let deepgram = ["STT_BACKEND":"deepgram", "ANTHROPIC_API_KEY":"private-anthropic-example-key"]
+        check(try BetaModelConfiguration.requiredProviders(in: deepgram) == ["anthropic", "deepgram"])
+        check(try BetaModelConfiguration.requiredProviders(in: ["STT_BACKEND":"apple"]) == ["anthropic"])
+        check(try BetaModelConfiguration.requiredProviders(in: ["STT_BACKEND":"deepgram", "VOICE_MODE":"gpt-live"]) == ["anthropic", "openai"])
+        let newKeys2 = try BetaModelConfiguration.updatingCredentials(keys, with: ["DEEPGRAM_API_KEY":"private-deepgram-example-key", "GEMINI_API_KEY":"AIza-private-example-gemini-key"])
+        check(BetaModelConfiguration.values(in: newKeys2)["DEEPGRAM_API_KEY"] == "private-deepgram-example-key")
+        check(BetaModelConfiguration.providerTitle("google") == "Google Gemini")
+        for changes in [["GEMINI_LIVE_VOICE":"kore"], ["GEMINI_LIVE_MODEL":"gemini-2.5"], ["STT_BACKEND":"siri"], ["VOICE_MODE":"other"]] {
+            do { _ = try BetaModelConfiguration.updating(keys, with: changes); preconditionFailure("Invalid change accepted") } catch { count += 1 }
+        }
+        let geminiSaved = try BetaModelConfiguration.updating(keys, with: ["VOICE_MODE":"gemini-live", "GEMINI_LIVE_VOICE":"Aoede", "GEMINI_LIVE_MODEL":"", "STT_BACKEND":"apple"])
+        check(try BetaModelConfiguration.geminiVoice(in: BetaModelConfiguration.values(in: geminiSaved)) == "Aoede")
+        check(try BetaModelConfiguration.speechBackend(in: BetaModelConfiguration.values(in: geminiSaved)) == "apple")
         print("Model ayarları: \(count) kontrol başarılı.")
     }
 }

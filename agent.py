@@ -58,7 +58,7 @@ IN_DEVICE = os.getenv("BETA_AUDIO_INPUT", "Asistan Dinleme")
 OUT_DEVICE = os.getenv("BETA_AUDIO_OUTPUT", "Asistan Ses Çıkışı")
 HUMAN_MIC_DEVICE = os.getenv("BETA_HUMAN_MIC", "MacBook Air Microphone")
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", "mlx-community/whisper-large-v3-turbo")
-STT_BACKEND = os.getenv("STT_BACKEND", "mlx")         # "faster" (CPU) veya "mlx" (Apple Silicon GPU)
+STT_BACKEND = os.getenv("STT_BACKEND", "mlx")         # "mlx" (Whisper, Apple GPU), "faster" (Whisper, CPU), "deepgram" (bulut), "apple" (macOS dikte)
 CLAUDE_MODEL = os.getenv("CLAUDE_MODEL") or "claude-haiku-4-5"
 CONVERSATION_CHOICE, SUMMARY_CHOICE = model_choices(os.environ)
 LLM_PROVIDER = CONVERSATION_CHOICE.provider
@@ -614,17 +614,28 @@ class Agent:
         self.live_key = os.environ.get("OPENAI_API_KEY", "")
         self.live_voice = voice_name(os.environ) if VOICE_MODE == "gpt-live" else "marin"
         self.live_threshold = VAD_THRESHOLD * BARGE_FACTOR
-        if VOICE_MODE == "gpt-live":
-            require_live_key(os.environ)
+        if VOICE_MODE in ("gpt-live", "gemini-live"):
+            if VOICE_MODE == "gpt-live": require_live_key(os.environ)
+            else:
+                import gemini_live
+                gemini_live.require_key(os.environ)
+                self.gemini = (os.environ["GEMINI_API_KEY"], gemini_live.model_name(os.environ), gemini_live.voice_name(os.environ))
             # A lightweight holder keeps shutdown and the existing Devral bridge compatible.
             from types import SimpleNamespace
             self.voice = SimpleNamespace(rate=48000, turn=None, interrupt=lambda: None)
-            sd.check_input_settings(device=self.in_idx,channels=2,samplerate=24000)
+            sd.check_input_settings(device=self.in_idx,channels=2,samplerate=16000 if VOICE_MODE == "gemini-live" else 24000)
             sd.check_output_settings(device=self.out_idx,channels=2,samplerate=24000)
-            emit("loading", text="GPT-Live ses bağlantısı hazır; hesap erişimini kurulum ekranından sınayın")
+            emit("loading", text=("Gemini Live" if VOICE_MODE == "gemini-live" else "GPT-Live") + " ses bağlantısı hazır; hesap erişimini kurulum ekranından sınayın")
         else:
             emit("loading", text="Konuşma tanıma modeli hazırlanıyor")
-            if STT_BACKEND == "mlx":
+            if STT_BACKEND == "deepgram":
+                from speech import DeepgramSTT
+                self.cloud_stt = DeepgramSTT(os.environ.get("DEEPGRAM_API_KEY", ""), np)
+            elif STT_BACKEND == "apple":
+                from speech import AppleSTT
+                emit("loading", text="Apple Türkçe dikte modeli hazırlanıyor (ilk kullanımda indirilir)")
+                self.cloud_stt = AppleSTT(np)
+            elif STT_BACKEND == "mlx":
                 import mlx_whisper
                 self.mlx_whisper = mlx_whisper
                 self._stt(np.zeros(16000, dtype=np.float32))
@@ -638,6 +649,8 @@ class Agent:
         threading.Thread(target=self._summary_loop, daemon=True).start()
 
     def _stt(self, audio: np.ndarray) -> str:
+        if STT_BACKEND in ("deepgram", "apple"):
+            return self.cloud_stt.transcribe(audio)
         if STT_BACKEND == "mlx":
             r = self.mlx_whisper.transcribe(audio, path_or_hf_repo=WHISPER_MODEL,
                 language="tr", temperature=0.0, condition_on_previous_text=False, verbose=None)
@@ -945,14 +958,19 @@ class Agent:
 
     def run_live_session(self, s: Session) -> None:
         self.session=s
-        emit("session_started",s.id,caller=s.caller,voice_mode="gpt-live")
+        emit("session_started",s.id,caller=s.caller,voice_mode=VOICE_MODE)
         self._checkpoint(s)
-        call=LiveCall(self,s,build_system_prompt(s.caller,s.preferences),build_greeting(s.caller,s.preferences),prewarmed=self.take_prewarm())
+        if VOICE_MODE == "gemini-live":
+            from gemini_live import GeminiCall
+            key, model, voice = self.gemini
+            call=GeminiCall(self,s,build_system_prompt(s.caller,s.preferences),build_greeting(s.caller,s.preferences),key,model,voice)
+        else:
+            call=LiveCall(self,s,build_system_prompt(s.caller,s.preferences),build_greeting(s.caller,s.preferences),prewarmed=self.take_prewarm())
         try: call.run()
         except Exception as e:
             if not s.stop.is_set():
                 s.reason="error"
-                emit("error",s.id,text=str(e) if isinstance(e,LiveError) else "GPT-Live görüşmesi sürdürülemedi. Aramayı devralabilirsiniz.")
+                emit("error",s.id,text=str(e) if isinstance(e,LiveError) else "Çevrimiçi ses görüşmesi sürdürülemedi. Aramayı devralabilirsiniz.")
         finally:
             s.stop.set()
             call.close()
@@ -965,7 +983,7 @@ class Agent:
             if not self.shutdown.is_set():emit("ready",voice_mode=VOICE_MODE)
 
     def run_session(self, s: Session) -> None:
-        if VOICE_MODE == "gpt-live":
+        if VOICE_MODE in ("gpt-live", "gemini-live"):
             self.run_live_session(s); return
         self.session = s
         emit("session_started", s.id, caller=s.caller)
@@ -1134,6 +1152,24 @@ def check_api() -> None:
             checks.append(dict(provider="openai",model="gpt-live-1",ok=True,message="Canlı oturum açıldı ve kapandı (ses: " + voice_name(os.environ).capitalize() + "). Ses/Türkçe kalitesi aramayla sınanmalıdır."))
         except Exception as error:
             checks.append(dict(provider="openai",model="gpt-live-1",ok=False,message=str(error) if isinstance(error,LiveError) else "GPT-Live bağlantısı doğrulanamadı."))
+    if VOICE_MODE == "gemini-live":
+        import gemini_live
+        try:
+            gemini_live.require_key(os.environ)
+            model, voice = gemini_live.model_name(os.environ), gemini_live.voice_name(os.environ)
+            gemini_live.check_access(os.environ["GEMINI_API_KEY"], model, voice)
+            checks.append(dict(provider="google",model=model,ok=True,message="Canlı oturum açıldı ve kapandı (ses: " + voice + "). Türkçe kalitesi aramayla sınanmalıdır."))
+        except Exception as error:
+            checks.append(dict(provider="google",model=os.environ.get("GEMINI_LIVE_MODEL") or "gemini-3.8-live",ok=False,message=str(error) if isinstance(error,LiveError) else "Gemini Live bağlantısı doğrulanamadı."))
+    if VOICE_MODE == "local" and STT_BACKEND == "deepgram":
+        from speech import DeepgramSTT, SpeechError
+        try:
+            stt = DeepgramSTT(os.environ.get("DEEPGRAM_API_KEY", ""), np)
+            try: stt.transcribe(np.zeros(8000, dtype=np.float32))
+            finally: stt.close()
+            checks.append(dict(provider="deepgram",model="nova-3 (tr)",ok=True,message="Konuşma tanıma isteği kabul edildi."))
+        except Exception as error:
+            checks.append(dict(provider="deepgram",model="nova-3 (tr)",ok=False,message=str(error) if isinstance(error,SpeechError) else "Deepgram bağlantısı doğrulanamadı."))
     for choice in dict.fromkeys((CONVERSATION_CHOICE, SUMMARY_CHOICE)):
         try:
             require_keys(os.environ, (choice, choice))
