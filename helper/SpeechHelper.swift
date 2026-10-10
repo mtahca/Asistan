@@ -12,6 +12,9 @@ func reply(_ object: [String: Any]) {
     print(line); fflush(stdout)
 }
 
+// SpeechAnalyzer ships with the macOS 26 SDK (Xcode 26, Swift 6.2); older toolchains build a stub
+// that reports the requirement instead of failing the whole app build.
+#if compiler(>=6.2)
 @available(macOS 26, *)
 func makeTranscriber(_ locale: Locale) -> DictationTranscriber {
     // One finished utterance per file; punctuation helps the language model read the caller's words.
@@ -55,6 +58,8 @@ func transcribe(_ url: URL, locale: Locale) async throws -> String {
     return try await collector.value.trimmingCharacters(in: .whitespacesAndNewlines)
 }
 
+#endif
+
 struct HelperError: LocalizedError {
     let message: String
     init(_ message: String) { self.message = message }
@@ -64,6 +69,7 @@ struct HelperError: LocalizedError {
 @main
 struct SpeechHelper {
     static func main() async {
+        #if compiler(>=6.2)
         guard #available(macOS 26, *) else {
             reply(["error": "Apple konuşma tanıma macOS 26 veya sonrasını gerektirir."]); exit(2)
         }
@@ -79,5 +85,8 @@ struct SpeechHelper {
             do { reply(["text": try await transcribe(URL(fileURLWithPath: path), locale: locale)]) }
             catch { reply(["error": "Apple konuşma tanıma başarısız: " + error.localizedDescription]) }
         }
+        #else
+        reply(["error": "Bu Asistan derlemesinde Apple konuşma tanıma yok; Xcode 26 veya sonrasıyla yeniden derleyin."]); exit(2)
+        #endif
     }
 }
