@@ -6,14 +6,14 @@ macOS menü çubuğunda çalışan yapay zekâ telefon asistanı. iPhone–Mac a
 
 ## 0.8.1: Arama uygulamalarının ses seçimi otomatik
 
-Bir arama uygulaması (özellikle macOS Telefon) mikrofon olarak Asistan Mikrofonu dışında bir aygıt kullanırsa asistanın sesi arayana gitmez. 0.8.1 bunu her görüşmede kendisi çözer:
+Bir arama uygulaması (özellikle macOS Telefon) mikrofon olarak Asistan Sanal Mikrofon dışında bir aygıt kullanırsa asistanın sesi arayana gitmez. 0.8.1 bunu her görüşmede kendisi çözer:
 
-1. **Menüden seçim:** Arama bağlanınca Asistan, aramanın geldiği uygulamanın (Telefon, FaceTime, WhatsApp) menüsünde mikrofonu **Asistan Mikrofonu** yapar. Hoparlör yanlışlıkla bir Asistan sanal aygıtındaysa gerçek hoparlöre alır. Uygulama arka plandaysa menüsünü okumak için kısa süre öne getirilir. Seçim, uygulama hazır olana kadar 6 kez yeniden denenir.
-2. **Doğrulama:** macOS'un ses sisteminden Asistan Mikrofonu'nu gerçekten hangi işlemin kullandığına bakılır.
-3. **Yedek:** Üçüncü denemede hâlâ doğrulanmadıysa sistem mikrofonu görüşme süresince **Asistan Mikrofonu** yapılır ("Sistem ayarını kullan" seçili uygulamalar için). Görüşme bitince, uygulama kapanınca veya bir sonraki açılışta eski mikrofon geri gelir. **Ses ayarları…** penceresinden kapatılabilir.
+1. **Menüden seçim:** Arama bağlanınca Asistan, aramanın geldiği uygulamanın (Telefon, FaceTime, WhatsApp) menüsünde mikrofonu **Asistan Sanal Mikrofon** yapar. Hoparlör yanlışlıkla bir Asistan sanal aygıtındaysa gerçek hoparlöre alır. Uygulama arka plandaysa menüsünü okumak için kısa süre öne getirilir. Seçim, uygulama hazır olana kadar 6 kez yeniden denenir.
+2. **Doğrulama:** macOS'un ses sisteminden Asistan Sanal Mikrofon'u gerçekten hangi işlemin kullandığına bakılır.
+3. **Yedek:** Üçüncü denemede hâlâ doğrulanmadıysa sistem mikrofonu görüşme süresince **Asistan Sanal Mikrofon** yapılır ("Sistem ayarını kullan" seçili uygulamalar için). Görüşme bitince, uygulama kapanınca veya bir sonraki açılışta eski mikrofon geri gelir. **Ses ayarları…** penceresinden kapatılabilir.
 4. **Uyarı:** Hiçbiri sonuç vermezse canlı metne, bildirimlere ve iPhone'a açık bir uyarı düşer; Devral ile görüşmeyi alabilirsiniz.
 
-**Ses ayarları… → Uygulamaları denetle ve düzelt** düğmesi, arama yokken açık olan Telefon, FaceTime ve WhatsApp'ı denetleyip düzeltir ve her birinin mikrofon/hoparlör durumunu gösterir. **Diğer seçenekler → Tanı bilgilerini kaydet** artık bu uygulamaların menü yapısını ve Asistan Mikrofonu'nu kullanan işlemleri de kaydeder.
+**Ses ayarları… → Uygulamaları denetle ve düzelt** düğmesi, arama yokken açık olan Telefon, FaceTime ve WhatsApp'ı denetleyip düzeltir ve her birinin mikrofon/hoparlör durumunu gösterir. **Diğer seçenekler → Tanı bilgilerini kaydet** artık bu uygulamaların menü yapısını ve Asistan Sanal Mikrofon'u kullanan işlemleri de kaydeder.
 
 ## 0.8'de neler değişti
 
@@ -26,7 +26,7 @@ Bir arama uygulaması (özellikle macOS Telefon) mikrofon olarak Asistan Mikrofo
 
 ## Kaynaktan derleme
 
-Gereksinimler: Apple Silicon Mac, macOS 14.2 veya üzeri, Xcode Command Line Tools ve sisteminizle uyumlu Loopback. API kullanımı, Python/paket kurulumu ve ilk model indirmeleri internet gerektirir.
+Gereksinimler: Apple Silicon Mac, macOS 14.2 veya üzeri, Xcode Command Line Tools. Loopback gerekmez; ses sürücüsü uygulamayla gelir. API kullanımı, Python/paket kurulumu ve ilk model indirmeleri internet gerektirir.
 
 ```sh
 git clone https://github.com/mtahca/Asistan.git
@@ -50,26 +50,26 @@ Oluşan **Asistan.app** dosyasını **Uygulamalar** klasörüne taşıyıp açı
 1. **Modeller ve API anahtarları…** ekranında yerel ses veya GPT-Live 1 modunu seçin, gereken Anthropic/OpenAI anahtarlarını gizli alanlara girin.
 2. **Kurulum ve izinleri kontrol et…** ekranındaki **Ortamı kur** düğmesiyle Python 3.12 ve sabitlenmiş bağımlılıkları hazırlayın. Yerel modda Whisper ve Türkçe EMA modelleri indirilip sınanır; GPT-Live modunda bunlar gerekmez.
 3. Mikrofon ve erişilebilirlik izinlerini verin. Rehber izni isteğe bağlıdır.
-4. Aşağıdaki Loopback düzenini hazırlayın ve arama uygulamalarının mikrofonu olarak **Asistan Mikrofonu**'nu seçin.
+4. **Ses ayarları…** ekranında **Ses sürücüsünü kur** düğmesiyle sürücüyü kurun, **Sistem sesi kaydetme** iznini verin ve arama uygulamalarının mikrofonu olarak **Asistan Sanal Mikrofon**'u seçin.
 5. Asistan'ı başlatıp **Asistan hazır** durumunu bekleyin. **Seçili modellerin bağlantısını sına** hesap/model erişimini küçük bir gerçek API isteğiyle kontrol eder; ücret oluşabilir.
 
 Başka bir Mac'e kurulum: [DIGER_MAC_KURULUM.md](DIGER_MAC_KURULUM.md).
 
-## Sabit Loopback ses hattı
+## Ses hattı
 
-BlackHole gerekmez. Asistan sistemin ses aygıtlarını değiştirmez; tek istisna, arama uygulamasının mikrofonu doğrulanamadığında devreye giren ve görüşme bitince geri alınan sistem mikrofonu yedeğidir (Ses ayarlarından kapatılabilir).
+Loopback veya BlackHole gerekmez. Asistan iki parçalı kendi ses hattını kurar ([Asistan-Audio-Driver](https://github.com/mtahca/Asistan-Audio-Driver)):
 
-| Aygıt | Kaynak | Pass-Thru |
-|---|---|---|
-| Asistan Dinleme | Phone/Telefon, FaceTime, WhatsApp | Kapalı |
-| Asistan Ses Çıkışı | Başka kaynak yok | Açık |
-| Asistan Mikrofonu | Asistan Ses Çıkışı sanal aygıtı | Kapalı |
+| Aygıt | Ne yapar |
+|---|---|
+| Asistan Sanal Çıkış | Asistan'ın sesi buraya çalınır (sürücü, yalnızca çıkış). |
+| Asistan Sanal Mikrofon | Asistan Sanal Çıkış'a çalınan sesi arama uygulamasına mikrofon olarak verir (sürücü, yalnızca giriş). |
+| Asistan Dinleme | Asistan açıkken oluşturulur; Core Audio ses yakalamasıyla Asistan'ın kendi sesi hariç sistem sesini dinler. Görüşme sırasında arayanın sesi hoparlörden ayrıca çalmaz. |
 
-Üç aygıt da açık ve iki kanallı olmalı; kanallar 1→1 ve 2→2 bağlanmalı. Monitör veya sürekli açık fiziksel mikrofon eklemeyin. **Asistan Dinleme**'deki uygulama kaynaklarında **Mute when capturing** açık olsun; böylece arayanın sesi Mac hoparlöründen ayrıca çalmaz.
+Sürücü **Ses ayarları… → Ses sürücüsünü kur** ile `/Library/Audio/Plug-Ins/HAL` klasörüne kurulur; yönetici parolası istenir. **Asistan Dinleme** için macOS 14.2 ve **Gizlilik ve Güvenlik → Sistem sesi kaydetme** izni gerekir; izin verildikten sonra Mac'i yeniden başlatmak gerekebilir. Loopback'te aynı adlı **Asistan Dinleme** aygıtı varsa kapatın.
 
-Telefon **Audio**, FaceTime **Video** ve WhatsApp **Call** menüsünde mikrofon **Asistan Mikrofonu**, hoparlör fiziksel hoparlör veya kulaklık olmalı. Ayrıntılar: [WHATSAPP_COZUM.md](WHATSAPP_COZUM.md).
+Telefon **Audio**, FaceTime **Video** ve WhatsApp **Call** menüsünde mikrofon **Asistan Sanal Mikrofon**, hoparlör fiziksel hoparlör veya kulaklık olmalı. Ayrıntılar: [WHATSAPP_COZUM.md](WHATSAPP_COZUM.md).
 
-Asistan kapalıyken sanal mikrofon hattından sizin sesiniz gitmez. Bilgisayardan kendiniz konuşacaksanız arama uygulamasında fiziksel mikrofonu seçin. **Devral** fiziksel mikrofonunuzu aynı hatta aktarır.
+Asistan sistemin ses aygıtlarını değiştirmez; tek istisna, arama uygulamasının mikrofonu doğrulanamadığında devreye giren ve görüşme bitince geri alınan sistem mikrofonu yedeğidir (Ses ayarlarından kapatılabilir). Asistan kapalıyken sanal mikrofon hattından sizin sesiniz gitmez. Bilgisayardan kendiniz konuşacaksanız arama uygulamasında fiziksel mikrofonu seçin. **Devral** fiziksel mikrofonunuzu aynı hatta aktarır.
 
 ## Kullanım
 
@@ -80,7 +80,7 @@ Gelen sesli aramada **Asistan ile Cevapla** düğmesine basın. İsterseniz otom
 ## Modeller
 
 - **Yerel ses:** Whisper → seçili metin modeli → Türkçe EMA. Ham ses bu Mac'te işlenir; görüşme metni yanıt ve özet için bulut sağlayıcısına gider.
-- **GPT-Live 1:** Ses OpenAI'ye gönderilir; gelen ses aynı Loopback hattında çalınır. Arka plan ve özet modeli ayrı seçilebilir.
+- **GPT-Live 1:** Ses OpenAI'ye gönderilir; gelen ses aynı ses hattında çalınır. Arka plan ve özet modeli ayrı seçilebilir.
 - **Metin/özet:** Claude Haiku 4.5, Haiku 5.5, Sonnet 5.5; OpenAI GPT-6 Luna, GPT-6 Sol, GPT-6.1 Sol.
 - **GPT-Live sesi:** Varsayılan Marin; 31 yerleşik ses seçilebilir.
 
@@ -108,7 +108,7 @@ Testler kurulu Python ortamını kullanır (`~/Documents/Asistan Data/.venv`). B
 
 ## Sürüm geçmişi
 
-- **0.9.0** — Aynı anda yalnızca bir Asistan çalışır: Uygulamalar klasöründeki kopya açılınca başka bir kopyayı kapatır, başka bir kopya ise Asistan zaten açıksa uyarıp kapanır; böylece aynı aramayı iki uygulama karşılamaz. GPT-Live ve Gemini Live bağlantısında okuma ve yazmayı artık tek bir iş parçacığı yapar (eskiden iki iş parçacığı aynı TLS bağlantısını kullanıyor ve görüşme 18-30 saniyede bir kopuyordu). Bağlantı 10 saniyede bir ping ile açık tutulur; her kopmada app.log'a kapanış kodu ve son alım/gönderim/pong süreleri yazılır.
+- **0.9.0** — Loopback gerekmez: Asistan kendi ses sürücüsünü (Asistan Sanal Çıkış, Asistan Sanal Mikrofon) Ses ayarlarındaki **Ses sürücüsünü kur** düğmesiyle kurar ve arayanın sesi için **Asistan Dinleme** aygıtını kendisi oluşturur. Aynı anda yalnızca bir Asistan çalışır: Uygulamalar klasöründeki kopya açılınca başka bir kopyayı kapatır, başka bir kopya ise Asistan zaten açıksa uyarıp kapanır; böylece aynı aramayı iki uygulama karşılamaz. GPT-Live ve Gemini Live bağlantısında okuma ve yazmayı artık tek bir iş parçacığı yapar (eskiden iki iş parçacığı aynı TLS bağlantısını kullanıyor ve görüşme 18-30 saniyede bir kopuyordu). Bağlantı 10 saniyede bir ping ile açık tutulur; her kopmada app.log'a kapanış kodu ve son alım/gönderim/pong süreleri yazılır.
 - **0.8.15** — Kişiselleştirmedeki talimatlarınız artık sabit kuralların önüne geçer: görev tanımı, hitap, paylaşılacak bilgiler, sohbetin süresi ve konuşma tarzında sizin talimatınız uygulanır (söz vermeme, bilgi uydurmama ve yapay zekâ olduğunu gizlememe değişmez). Görüşme sırasındaki `!` komutları da aynı önceliktedir ve bağlantı yenilense de kaybolmaz. Kişiselleştirme > Hitaplar'a **Benden bahsederken** alanı eklendi (ör. "Mehmet Başkan"); karşılama ve bütün talimatlar bu unvanı kullanır. Özel karşılamada yapay zekâ asistanı olduğu söylenmediyse asistan bunu bir sonraki cümlesinde söyler.
 - **0.8.14** — Görüşme sırasında gönderilen notlar artık arayana birebir okunmaz: asistan anlamını kavrayıp konuşmaya ve arayanın sorularına uygun kendi cümlesiyle kullanır ("yarın 10'da müsait olacağım" → "Yarın saat onda müsait olacak, size uyar mı?"). `!` ile başlayan notlar yalnızca asistana komuttur ("!daha kibar konuş ve muhabbet et"); arayana söylenmez, davranışa uygulanır. Bu üç ses modunda da geçerlidir. Genel bilgi soruları (Muğla–Ankara kaç km gibi) kısa ve yaklaşık yanıtlanır; GPT-Live emin olmadığında arka plandaki görüşme modeline sorar, Gemini Live da aynısını `bilgi_al` aracıyla yapar (model aracı kabul etmezse araçsız devam eder).
 - **0.8.13** — iPhone bağlantısı düzeltildi: QR ile eşleşme eski porta (47821, `_asistan-canli._tcp`) döndü. 0.8.12'deki 47822 servis türü Mac'in Info.plist'inde olmadığı için macOS yayını reddediyor, dinleyici 2 saniyede bir yeniden açılıp kapanıyordu. 8 haneli kodla bağlanma tamamen kaldırıldı; bu hata bir daha olursa dinleyici döngüye girmez, açık bir hata gösterir. Gemini Live'da uzun cümlelerin yarıda kesilip bağlantının "yenilenmesi" düzeltildi: Gemini sesi gerçek zamandan hızlı gönderir; oynatma sırası artık 120 sn ses alır (GPT-Live'daki 3 sn sınırı uygulanmıyor). Gemini 3.1 Flash Live listeden kaldırıldı; kayıtlı ayar 3.8 Live'a geçer. GPT-Live'daki ~18 saniyede bir kopmalar düzeltildi: 0,5 sn'lik soket zaman aşımı kısa bir Wi-Fi takılmasında gönderimi yarıda kesip hatta yarım çerçeve bırakıyor, sunucu da bağlantıyı kapatıyordu; artık gönderim yarıda kesilmez (5 sn), sıkışan arayan sesi kuyrukta en eskiden atılır. Yeniden bağlanınca eski ve yeni yanıtın metni aynı balonda iç içe geçmez; karşılama hatırlatması ilk ses 4 sn içinde gelmezse gönderilir (önceden 1 sn, iki yanıt üst üste başlıyordu). Kopma bildirimi artık nedenini de yazar.

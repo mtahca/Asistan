@@ -14,7 +14,7 @@ ZIP yalnızca uygulamayı içerir. API anahtarları, notlar, kişiselleştirme, 
 2. Uygulamalar'dan Asistan'a çift tıklayın. Asistan menü çubuğunda çalışır. Pencere kapanırsa uygulamaya yeniden çift tıklayarak **Kurulum ve durum** ekranını açabilirsiniz. Üstte **Sürüm 0.8.0 · Derleme 20** görünmelidir.
 3. **Ortamı kur (internet gerekir)** düğmesine basın. Python 3.12, gerekli paketler, Whisper konuşma tanıma modeli ve Türkçe EMA ses modeli indirilir. İlerlemeyi **Kurulum ayrıntıları** sekmesinden izleyin ve **Ortam kuruldu** mesajını bekleyin.
 4. **Modeller ve API anahtarları…** ekranında görüşme ve özet modelini seçip gereken Anthropic ve/veya OpenAI anahtarını girin. Anahtarlar ve kişiselleştirme ayarları paketle taşınmaz.
-5. Loopback'i kurun ve aşağıdaki üç aygıtı oluşturun. FaceTime/WhatsApp/Telefon mikrofonunu **Asistan Mikrofonu** seçin; hoparlörü gerçek hoparlör veya kulaklık olarak bırakın. BlackHole gerekmez.
+5. **Ses ayarları…** ekranında **Ses sürücüsünü kur** düğmesine basın ve yönetici parolasını girin. **Sistem sesi kaydetme** iznini verin (gerekirse Mac'i yeniden başlatın). FaceTime/WhatsApp/Telefon mikrofonunu **Asistan Sanal Mikrofon** seçin; hoparlörü gerçek hoparlör veya kulaklık olarak bırakın. Loopback ve BlackHole gerekmez.
 6. **İzinleri iste** düğmesiyle mikrofon ve erişilebilirlik izinlerini tamamlayın. Rehber izni isteğe bağlıdır. Erişilebilirlik listesinde **Uygulamalar'daki Asistan** görünmelidir.
 7. **Asistan'ı başlat** düğmesine basın. **Asistan hazır** ve **Whisper ve Türkçe ses sınandı** göründükten sonra isterseniz **Seçili modellerin bağlantısını sına** ile model erişimini doğrulayın. Bu test küçük, ücretli bir API isteği gönderir; görüşme içeriği göndermez.
 8. Önceki Mac'te Asistan'ı kapatın ve yeni Mac'e bir deneme araması yapın. WhatsApp ile iPhone/FaceTime'ı ayrı ayrı deneyin.
@@ -25,9 +25,9 @@ Taşımak istediğiniz ayarlar varsa yalnızca şu dosyaları kopyalayın: `~/Do
 
 ## Bilgisayar gereklilikleri
 
-- **Apple Silicon** (M1 ve sonrası) gerekir; Intel Mac desteklenmez. Alt sınır macOS 14.2'dir. Güncel Loopback 2.5.0 için üreticinin belirttiği aralık macOS **14.5–27** olduğundan yeni kurulumda macOS 14.5 veya üstünü kullanın. [Loopback'in resmi sayfası](https://rogueamoeba.com/loopback/).
+- **Apple Silicon** (M1 ve sonrası) gerekir; Intel Mac desteklenmez. Alt sınır macOS 14.2'dir (arayanın sesini dinleme için gerekli).
 - Asistan yerel ortamı, üç ses aygıtını, erişilebilirlik ve mikrofon izinlerini ve model/anahtar ayarlarını kontrol eder. Kurulum, Whisper ile kısa bir tanıma ve EMA ile ses üretimi denenmeden başarılı sayılmaz.
-- Asistan, Loopback'i veya lisansını otomatik kurmaz. Aygıt adlarının bulunması, kaynakların, kanal bağlantılarının, **Mute when capturing** ayarının ve arama uygulamalarındaki mikrofon seçiminin doğru olduğunu göstermez; bunları ayrıca kontrol edin.
+- Aygıt adlarının bulunması, arama uygulamalarındaki mikrofon seçiminin doğru olduğunu göstermez; bunu ayrıca kontrol edin.
 - Paket API anahtarlarını, kişisel görüşmeleri, Python ortamını ve model önbelleklerini içermez.
 
 ## İlk açılışta macOS uyarısı
@@ -42,23 +42,17 @@ Bu kişisel dağıtım Apple tarafından notarize edilmemiştir; başka bir Mac'
 
 Genel güvenlik korumalarını kapatmayın. Uygulama sabit bir yerel imzayla imzalanmışsa (`make_cert.sh`), o sertifika diğer Mac'te yoktur; bu sorun değildir, yalnızca o Mac'te yeniden derlerseniz izinler sıfırlanır.
 
-## Loopback düzeni
+## Ses aygıtları
 
-Her aygıt iki kanallı ve açık olmalı:
-
-1. **Asistan Ses Çıkışı:** Yalnızca Pass-Thru açık. Başka kaynak veya monitör yok. Asistan'ın sesi buraya gider.
-2. **Asistan Mikrofonu:** Pass-Thru kapalı. Kaynak, sanal **Asistan Ses Çıkışı** aygıtı; kanallar 1→1, 2→2. Fiziksel mikrofon, BlackHole veya monitör yok. Bu ayrı aygıt, WhatsApp'ın mikrofon listesinde görünmesi için gereklidir.
-3. **Asistan Dinleme:** Pass-Thru kapalı. Kaynaklar FaceTime, WhatsApp ve varsa Telefon/Phone; kanallar 1→1, 2→2. Her uygulama kaynağında **Mute when capturing** açık, monitör yok.
-
-FaceTime'ın Video, WhatsApp'ın Call ve Telefon'un Audio menüsünde mikrofonu **Asistan Mikrofonu**, hoparlörü gerçek hoparlör veya kulaklık olarak seçin. Asistan Dinleme'yi ve Asistan Ses Çıkışı'nı arama uygulamasının mikrofonu yapmayın. Sistem varsayılanlarını fiziksel aygıtlarda bırakın. WhatsApp yeni aygıtı görmüyorsa açık görüşme yokken uygulamayı tamamen kapatıp yeniden açın.
+Sürücü **Asistan Sanal Çıkış** ve **Asistan Sanal Mikrofon** aygıtlarını ekler; Asistan açıkken **Asistan Dinleme** aygıtını kendisi oluşturur. FaceTime'ın Video, WhatsApp'ın Call ve Telefon'un Audio menüsünde mikrofonu **Asistan Sanal Mikrofon**, hoparlörü gerçek hoparlör veya kulaklık olarak seçin. Asistan Dinleme'yi ve Asistan Sanal Çıkış'ı arama uygulamasının mikrofonu veya hoparlörü yapmayın. Sistem varsayılanlarını fiziksel aygıtlarda bırakın. WhatsApp yeni aygıtı görmüyorsa açık görüşme yokken uygulamayı tamamen kapatıp yeniden açın. Daha önce Loopback kullanıldıysa oradaki Asistan aygıtlarını kapatın.
 
 ## İsteğe bağlı: Codex veya Claude ile kurulum
 
 Aşağıdaki talimatı diğer bilgisayardaki bir yapay zekâ kodlama asistanına yapıştırıp bu depoyu veya paketi ekleyebilirsiniz. Bu zorunlu değildir; aynı düzeni elle de kurabilirsiniz.
 
-> Bu Mac'te Asistan 0.8'i kurmanı ve Loopback ayarlarını aşağıdaki düzene göre yapmanı istiyorum. Kurulumu gerçekleştir; yalnızca anlatmakla kalma. README.md, DOGRULAMA.md ve WHATSAPP_COZUM.md belgelerini oku. Mevcut Loopback ayarlarını değiştirmeden önce yedekle. Önce bu Mac'in Apple Silicon ve macOS 14.2 veya üzeri olduğunu kontrol et. Önceki bilgisayarın dosya yollarını veya Python ortamını kullanma; Asistan verileri ~/Documents/Asistan Data klasöründe tutulur. Uygulamayı /Applications klasörüne yerleştir ve kurulum ekranından Python/paket/model hazırlığını tamamla. API anahtarlarını sohbette isteme veya yazdırma; Modeller ve API anahtarları ekranına benim girmemi sağla. macOS'un kimlik doğrulaması isteyen adımlarını bana bırak.
+> Bu Mac'te Asistan 0.8'i kurmanı ve ses hattını hazırlamanı istiyorum. Kurulumu gerçekleştir; yalnızca anlatmakla kalma. README.md, DOGRULAMA.md ve WHATSAPP_COZUM.md belgelerini oku. Önce bu Mac'in Apple Silicon ve macOS 14.2 veya üzeri olduğunu kontrol et. Önceki bilgisayarın dosya yollarını veya Python ortamını kullanma; Asistan verileri ~/Documents/Asistan Data klasöründe tutulur. Uygulamayı /Applications klasörüne yerleştir ve kurulum ekranından Python/paket/model hazırlığını tamamla. API anahtarlarını sohbette isteme veya yazdırma; Modeller ve API anahtarları ekranına benim girmemi sağla. macOS'un kimlik doğrulaması isteyen adımlarını bana bırak.
 >
-> Loopback'te iki kanallı üç aygıt olsun: Asistan Ses Çıkışı (yalnızca Pass-Thru), Asistan Mikrofonu (kaynak: Asistan Ses Çıkışı; 1→1, 2→2) ve Asistan Dinleme (kaynaklar: FaceTime, WhatsApp, varsa Telefon; her birinde Mute when capturing açık). Arama uygulamalarında mikrofon Asistan Mikrofonu, hoparlör gerçek hoparlör veya kulaklık olsun. Sistem varsayılanlarını fiziksel aygıtlarda bırak.
+> Ses sürücüsünü Ses ayarlarındaki Ses sürücüsünü kur düğmesiyle kur (parolayı ben gireceğim) ve Sistem sesi kaydetme iznini kontrol et. Loopback kullanma. Arama uygulamalarında mikrofon Asistan Sanal Mikrofon, hoparlör gerçek hoparlör veya kulaklık olsun. Sistem varsayılanlarını fiziksel aygıtlarda bırak.
 >
 > Erişilebilirlik ve mikrofon izinlerinin çalışan Asistan'da gerçekten kullanılabildiğini ve ses modellerinin hazır olduğunu doğrula. iPhone–Mac arama aktarımını kontrol et. Gerçek aramayı ben başka bir telefondan başlatacağım; deneme sırasında önceki bilgisayardaki Asistan'ı kapatmamı hatırlat. WhatsApp ve iPhone/FaceTime sesli aramalarını ayrı ayrı sına: cevaplama, iki yönlü konuşma, araya girince susma, not gönderme, Devral ve Sonlandır. Devral'da arayanı duyabildiğimi ayrıca test et. Bitince hangi testlerin geçtiğini ve kalan eksikleri kısaca bildir.
 

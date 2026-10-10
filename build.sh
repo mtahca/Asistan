@@ -13,6 +13,8 @@ swiftc -O -parse-as-library -module-cache-path "$BUILD_CACHE" -o "$APP/Contents/
 cp app/Info.plist "$APP/Contents/Info.plist"
 iconutil -c icns app/AppIcon.iconset -o "$APP/Contents/Resources/AppIcon.icns"
 cp agent.py llm.py live.py speech.py gemini_live.py setup.sh requirements.txt requirements.lock requirements-online.lock "$APP/Contents/Resources/"
+# Sanal ses sürücüsü (Asistan Sanal Çıkış / Asistan Sanal Mikrofon); Ses ayarlarından kurulur.
+ASISTAN_DRIVER_WORK="$BUILD_CACHE/driver" bash audio/build_driver.sh "$APP/Contents/Resources"
 rm -rf "$APP/Contents/Resources/vendor"
 cp -R vendor "$APP/Contents/Resources/vendor"
 # Use the stable local signing identity (make_cert.sh) when present, so permissions survive rebuilds.

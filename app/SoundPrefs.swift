@@ -12,12 +12,13 @@ final class SoundPrefsController: NSObject, SettingsPane {
     var routeInfo: NSTextField!
     var routeButton: NSButton!
     var fallbackToggle: NSButton!
+    var installButton: NSButton!
     init(app: AppDelegate) { self.app = app; super.init(); build() }
     func build() {
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 540, height: 540), styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.title = "Asistan — Kalıcı ses hattı"; window.isReleasedWhenClosed = false
         let content = window.contentView!
-        let title = NSTextField(labelWithString: "Ses hattı: Loopback")
+        let title = NSTextField(labelWithString: "Ses hattı: Asistan ses sürücüsü")
         title.font = .boldSystemFont(ofSize: 16); title.frame = NSRect(x: 20, y: 496, width: 500, height: 24); content.addSubview(title)
         info = NSTextField(wrappingLabelWithString: "")
         info.isSelectable = true; info.frame = NSRect(x: 20, y: 350, width: 500, height: 142); content.addSubview(info)
@@ -29,13 +30,13 @@ final class SoundPrefsController: NSObject, SettingsPane {
         feedback.frame = NSRect(x: 20, y: 236, width: 500, height: 44); content.addSubview(feedback)
         let refresh = NSButton(title: "Durumu yenile", target: self, action: #selector(refresh))
         refresh.bezelStyle = .rounded; refresh.frame = NSRect(x: 20, y: 198, width: 140, height: 30); content.addSubview(refresh)
-        let open = NSButton(title: "Loopback’i aç", target: self, action: #selector(openLoopback))
-        open.bezelStyle = .rounded; open.frame = NSRect(x: 176, y: 198, width: 160, height: 30); content.addSubview(open)
+        installButton = NSButton(title: "Ses sürücüsünü kur", target: self, action: #selector(installDriver))
+        installButton.bezelStyle = .rounded; installButton.frame = NSRect(x: 176, y: 198, width: 200, height: 30); content.addSubview(installButton)
         let routeTitle = NSTextField(labelWithString: "Arama uygulamalarının mikrofonu ve hoparlörü")
         routeTitle.font = .boldSystemFont(ofSize: 13); routeTitle.frame = NSRect(x: 20, y: 162, width: 500, height: 20); content.addSubview(routeTitle)
-        routeInfo = NSTextField(wrappingLabelWithString: "Her görüşmede Asistan, Telefon/FaceTime/WhatsApp menüsünden mikrofonu Asistan Mikrofonu yapar ve macOS’tan doğrular. Görüşmeden önce denetlemek için aşağıdaki düğmeyi kullanın.")
+        routeInfo = NSTextField(wrappingLabelWithString: "Her görüşmede Asistan, Telefon/FaceTime/WhatsApp menüsünden mikrofonu Asistan Sanal Mikrofon yapar ve macOS’tan doğrular. Görüşmeden önce denetlemek için aşağıdaki düğmeyi kullanın.")
         routeInfo.isSelectable = true; routeInfo.frame = NSRect(x: 20, y: 82, width: 500, height: 76); content.addSubview(routeInfo)
-        fallbackToggle = NSButton(checkboxWithTitle: "Doğrulanamazsa görüşme süresince sistem mikrofonunu Asistan Mikrofonu yap", target: self, action: #selector(toggleFallback))
+        fallbackToggle = NSButton(checkboxWithTitle: "Doğrulanamazsa görüşme süresince sistem mikrofonunu Asistan Sanal Mikrofon yap", target: self, action: #selector(toggleFallback))
         fallbackToggle.frame = NSRect(x: 20, y: 52, width: 500, height: 22); content.addSubview(fallbackToggle)
         routeButton = NSButton(title: "Uygulamaları denetle ve düzelt", target: self, action: #selector(checkCallApps))
         routeButton.bezelStyle = .rounded; routeButton.frame = NSRect(x: 20, y: 14, width: 260, height: 30); content.addSubview(routeButton)
@@ -61,7 +62,7 @@ final class SoundPrefsController: NSObject, SettingsPane {
             DispatchQueue.main.async {
                 guard let self = self else { return }
                 self.routeButton.isEnabled = true
-                self.routeInfo.stringValue = lines + "\nÇalışmayan uygulamayı açıp yeniden deneyin. Liste bulunamazsa o uygulamanın menüsünden mikrofonu elle Asistan Mikrofonu seçin."
+                self.routeInfo.stringValue = lines + "\nÇalışmayan uygulamayı açıp yeniden deneyin. Liste bulunamazsa o uygulamanın menüsünden mikrofonu elle Asistan Sanal Mikrofon seçin."
             }
         }
     }
@@ -69,11 +70,13 @@ final class SoundPrefsController: NSObject, SettingsPane {
         let listen = namedAudioDevice(BetaAudio.listenName, input: true) != nil
         let mic = namedAudioDevice(BetaAudio.microphoneName, input: true) != nil
         let playback = namedAudioDevice(BetaAudio.playbackName, input: false) != nil
-        info.stringValue = "\(listen ? "✅" : "⬜️") Arayanın sesi: Asistan Dinleme\n\(playback ? "✅" : "⬜️") Asistan’ın sesi: Asistan Ses Çıkışı\n\(mic ? "✅" : "⬜️") Arama uygulamalarının mikrofonu: Asistan Mikrofonu\n\nArama başında ve sonunda aygıt değiştirilmez.\nDevral’da kendi mikrofonunuz aynı hatta aktarılır."
+        let listenNote = listen ? "" : (ListenTap.shared.failure.map { " — \($0)" } ?? (ListenTap.shared.running ? " — Loopback’te aynı adlı aygıt varsa kapatın" : ""))
+        info.stringValue = "\(listen ? "✅" : "⬜️") Arayanın sesi: \(BetaAudio.listenName)\(listenNote)\n\(playback ? "✅" : "⬜️") Asistan’ın sesi: \(BetaAudio.playbackName)\n\(mic ? "✅" : "⬜️") Arama uygulamalarının mikrofonu: \(BetaAudio.microphoneName)\n\nArayanın sesi macOS’un sistem sesi kaydıyla alınır (Gizlilik → Ekran ve Sistem Sesi Kaydı). Diğer ikisi Asistan’ın ses sürücüsüdür; Loopback gerekmez.\nDevral’da kendi mikrofonunuz aynı hatta aktarılır."
+        installButton.title = AudioDriver.installed ? "Ses sürücüsünü yeniden kur" : "Ses sürücüsünü kur"
         let selected = UserDefaults.standard.string(forKey: "humanMicrophoneUID") ?? ""
         microphones.removeAllItems(); microphones.addItem(withTitle: "Yerleşik mikrofon (otomatik)")
         microphones.lastItem?.representedObject = ""
-        for device in allDevices().filter({ hasStreams($0, input: true) && transportType($0) != kAudioDeviceTransportTypeVirtual }) {
+        for device in allDevices().filter({ hasStreams($0, input: true) && transportType($0) != kAudioDeviceTransportTypeVirtual && !isAssistantDevice($0) }) {
             let uid = deviceUIDString(device)
             if uid.isEmpty { continue }
             microphones.addItem(withTitle: deviceName(device)); microphones.lastItem?.representedObject = uid
@@ -91,8 +94,20 @@ final class SoundPrefsController: NSObject, SettingsPane {
         UserDefaults.standard.set(uid, forKey: "humanMicrophoneUID")
         feedback.stringValue = "Kaydedildi. Bir sonraki aramada Devral için bu mikrofon kullanılacak."
     }
-    @objc func openLoopback() {
-        NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: "/Applications/Loopback.app"), configuration: NSWorkspace.OpenConfiguration())
+    @objc func installDriver() {
+        guard !app.busy else { feedback.stringValue = "Görüşme sürerken sürücü kurulamaz."; return }
+        installButton.isEnabled = false
+        feedback.stringValue = "Kuruluyor… macOS yönetici parolanızı isteyecek; sesler bir an kesilebilir."
+        DispatchQueue.global().async { [weak self] in
+            let error = AudioDriver.install()
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                self.installButton.isEnabled = true
+                if let error = error { self.feedback.stringValue = error; return }
+                self.feedback.stringValue = "Sürücü kuruldu. Ses hattı yeniden hazırlanıyor…"
+                self.app.audioSystemRestarted { self.refresh() }
+            }
+        }
     }
     func prepare() { refresh() }
     func paneClosed() {}

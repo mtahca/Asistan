@@ -26,6 +26,8 @@
 	<string>Asistan, arayan ekranındaki numaraya ait kişiyi isteğe bağlı olarak bulur.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Apple konuşma tanıma seçildiğinde arayanın sözlerini bu Mac'te Türkçe yazıya çevirmek için.</string>
+	<key>NSAudioCaptureUsageDescription</key>
+	<string>Asistan, karşıladığı aramada arayanın sesini duymak için sistem sesini kaydeder.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Asistan, seçtiğiniz aramanın sesini metne dönüştürür.</string>
 	<key>NSLocalNetworkUsageDescription</key>

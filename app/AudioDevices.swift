@@ -123,8 +123,15 @@ func deviceName(_ d: AudioDeviceID) -> String {
     return deviceUIDString(d)
 }
 
+/// Asistan'ın kendi aygıtları: sanal ses sürücüsü (kendini "Built-in" tanıtır; WhatsApp ancak böyle
+/// listeliyor) ve Asistan Dinleme. Gerçek mikrofon ararken bunlar atlanmalı.
+func isAssistantDevice(_ d: AudioDeviceID) -> Bool {
+    let uid = deviceUIDString(d)
+    return uid.hasPrefix("AsistanSes") || uid == ListenTap.deviceUID
+}
+
 func builtinDevice(input: Bool) -> AudioDeviceID? {
-    allDevices().first { hasStreams($0, input: input) && transportType($0) == kAudioDeviceTransportTypeBuiltIn }
+    allDevices().first { hasStreams($0, input: input) && transportType($0) == kAudioDeviceTransportTypeBuiltIn && !isAssistantDevice($0) }
 }
 
 func namedAudioDevice(_ name: String, input: Bool) -> AudioDeviceID? {

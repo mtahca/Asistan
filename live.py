@@ -1,6 +1,6 @@
 """GPT-Live transport and call loop. No local speech-model imports.
 Official protocol: developers.openai.com/api/docs/guides/voice-websockets.
-The caller audio uses the existing Loopback devices; connections exist only in calls.
+The caller audio uses the fixed Asistan devices; connections exist only in calls.
 """
 from __future__ import annotations
 import base64

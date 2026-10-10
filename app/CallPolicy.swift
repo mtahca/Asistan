@@ -69,6 +69,6 @@ enum CallUI {
 
 enum BetaAudio {
     static let listenName = "Asistan Dinleme"
-    static let microphoneName = "Asistan Mikrofonu"
-    static let playbackName = "Asistan Ses Çıkışı"
+    static let microphoneName = "Asistan Sanal Mikrofon"
+    static let playbackName = "Asistan Sanal Çıkış"
 }
