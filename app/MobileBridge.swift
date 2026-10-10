@@ -73,9 +73,15 @@ final class MobileBridge {
     private let defaults: UserDefaults
     private(set) var enabled: Bool
     private(set) var code: String
+    private(set) var key: Data
+    /// Old Asistan Mobile versions only know the 8-digit code; turn this off once every phone uses the QR code.
+    private(set) var legacyEnabled: Bool
     private(set) var listening = false
     private(set) var failure: String?
     private var listener: NWListener?
+    private var secureListener: NWListener?
+    private var quickNotes: [String] = []
+    private var history: [[String: Any]] = []
     private var clients: [MobileClient] = []
     private var transcript = MobileTranscript()
     private var state: [String: Any] = ["t": "state", "inSession": false, "caller": "", "status": "", "ringing": false, "ringer": "", "source": "", "paused": false, "humanCall": false]
@@ -98,6 +104,9 @@ final class MobileBridge {
         macName = LiveProtocol.serviceName(host: Host.current().localizedName ?? "Mac")
         if let stored = defaults.string(forKey: "betaMobileCode"), stored.utf8.count == 8, stored.utf8.allSatisfy({ (48...57).contains($0) }) { code = stored }
         else { code = Self.newCode(); defaults.set(code, forKey: "betaMobileCode") }
+        if let stored = defaults.string(forKey: "mobileKey").flatMap(PairingLink.decode), stored.count == PairingLink.keyLength { key = stored }
+        else { key = PairingLink.newKey(); defaults.set(PairingLink.encode(key), forKey: "mobileKey") }
+        legacyEnabled = (defaults.object(forKey: "mobileLegacyCode") as? Bool) ?? true
     }
     static func newCode() -> String { String(format: "%08d", Int.random(in: 0..<100_000_000)) }
     func startIfEnabled() { if enabled { startListener() } }
@@ -105,43 +114,62 @@ final class MobileBridge {
         enabled = value; defaults.set(value, forKey: "betaMobileEnabled")
         if value { startListener() } else { stopListener() }; onChanged?()
     }
+    /// Renews both the QR key and the 8-digit code; every paired phone must pair again.
     func regenerateCode() {
         let old = code
         repeat { code = Self.newCode() } while code == old
         defaults.set(code, forKey: "betaMobileCode")
+        key = PairingLink.newKey(); defaults.set(PairingLink.encode(key), forKey: "mobileKey")
+        stopListener(); if enabled { startListener() }; onChanged?()
+    }
+    func setLegacyEnabled(_ value: Bool) {
+        legacyEnabled = value; defaults.set(value, forKey: "mobileLegacyCode")
         stopListener(); if enabled { startListener() }; onChanged?()
     }
     func shutdown() { stopListener() }
     private func startListener() {
-        guard listener == nil else { return }; failure = nil; listening = false
+        guard listener == nil, secureListener == nil else { return }; failure = nil; listening = false
         do {
-            let l = try NWListener(using: LiveProtocol.parameters(code: code), on: NWEndpoint.Port(rawValue: LiveProtocol.port)!)
-            listener = l; l.service = NWListener.Service(name: macName, type: LiveProtocol.serviceType)
-            l.stateUpdateHandler = { [weak self, weak l] status in
-                guard let self = self, let l = l, self.listener === l else { return }
-                switch status {
-                case .ready: self.listening = true; self.failure = nil; logLine("Mobil bağlantı hazır; port \(LiveProtocol.port)")
-                case .waiting, .failed:
-                    self.stopListener(); self.failure = "Mobil bağlantı açılamadı. Yerel ağ iznini ve \(LiveProtocol.port) portunu kontrol edip yeniden açın."
-                default: break
-                }; self.onChanged?()
-            }
-            l.newConnectionHandler = { [weak self] connection in
-                guard let self = self, self.enabled, self.clients.count < 4 else { connection.cancel(); return }
-                let client = MobileClient(connection, bridge: self); self.clients.append(client); client.start()
-            }
-            l.start(queue: .main)
-        } catch { failure = "Mobil bağlantı başlatılamadı. Yerel ağ iznini ve \(LiveProtocol.port) portunu kontrol edin."; onChanged?() }
+            secureListener = try makeListener(LiveProtocol.parameters(key: key), port: LiveProtocol.securePort, type: LiveProtocol.secureServiceType)
+            if legacyEnabled { listener = try makeListener(LiveProtocol.parameters(code: code), port: LiveProtocol.port, type: LiveProtocol.serviceType) }
+        } catch {
+            stopListener()
+            failure = "Mobil bağlantı başlatılamadı. Yerel ağ iznini ve \(LiveProtocol.port)–\(LiveProtocol.securePort) portlarını kontrol edin."; onChanged?()
+        }
+    }
+    private func makeListener(_ parameters: NWParameters, port: UInt16, type: String) throws -> NWListener {
+        let l = try NWListener(using: parameters, on: NWEndpoint.Port(rawValue: port)!)
+        l.service = NWListener.Service(name: macName, type: type)
+        l.stateUpdateHandler = { [weak self, weak l] status in
+            guard let self = self, let l = l, self.listener === l || self.secureListener === l else { return }
+            switch status {
+            case .ready:
+                let all = [self.listener, self.secureListener].compactMap { $0 }
+                self.listening = all.allSatisfy { if case .ready = $0.state { return true }; return false }; self.failure = nil
+                logLine("Mobil bağlantı hazır; port \(port)")
+            case .waiting, .failed:
+                self.stopListener(); self.failure = "Mobil bağlantı açılamadı. Yerel ağ iznini ve \(port) portunu kontrol edip yeniden açın."
+            default: break
+            }; self.onChanged?()
+        }
+        l.newConnectionHandler = { [weak self] connection in
+            guard let self = self, self.enabled, self.clients.count < 4 else { connection.cancel(); return }
+            let client = MobileClient(connection, bridge: self); self.clients.append(client); client.start()
+        }
+        l.start(queue: .main)
+        return l
     }
     private func stopListener() {
-        listener?.stateUpdateHandler = nil; listener?.newConnectionHandler = nil; listener?.cancel(); listener = nil; listening = false
+        for l in [listener, secureListener].compactMap({ $0 }) { l.stateUpdateHandler = nil; l.newConnectionHandler = nil; l.cancel() }
+        listener = nil; secureListener = nil; listening = false
         let old = clients; clients.removeAll(); for client in old { client.close() }; onChanged?()
     }
     fileprivate func clientReady(_ client: MobileClient) {
         guard enabled, clients.contains(where: { $0 === client }) else { client.close(); return }
         client.context = context
-        client.send(["t": "hello", "v": LiveProtocol.version, "mac": macName, "app": appVersion])
-        client.send(state); client.send(["t": "snapshot", "lines": transcript.lines]); onChanged?()
+        client.send(["t": "hello", "v": LiveProtocol.version, "mac": macName, "app": appVersion, "caps": LiveProtocol.capabilities])
+        client.send(state); client.send(["t": "snapshot", "lines": transcript.lines])
+        client.send(["t": "quickNotes", "items": quickNotes]); client.send(["t": "history", "items": history, "fresh": false]); onChanged?()
     }
     fileprivate func drop(_ client: MobileClient) {
         let before = clients.count; clients.removeAll { $0 === client }
@@ -189,6 +217,14 @@ final class MobileBridge {
         for client in clients where client.ready { client.context = context; client.send(next) }
     }
     func reset() { transcript.reset(); broadcast(["t": "reset"]) }
+    func setQuickNotes(_ notes: [String]) {
+        guard notes != quickNotes else { return }
+        quickNotes = notes; broadcast(["t": "quickNotes", "items": notes])
+    }
+    /// fresh: a call summary was just saved; the phone shows the newest item as the call's summary.
+    func setHistory(_ items: [[String: Any]], fresh: Bool) {
+        history = items; broadcast(["t": "history", "items": items, "fresh": fresh])
+    }
     func append(kind: String, speaker: String, text: String) {
         let previousCount = transcript.lines.count
         let row = transcript.append(kind: kind, speaker: speaker, text: text)

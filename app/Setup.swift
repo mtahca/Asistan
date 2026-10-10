@@ -67,7 +67,7 @@ final class SetupController: NSObject, NSWindowDelegate {
         let remote = NSView(frame: page.frame)
         _ = label("Asistan Mobile", at: NSRect(x: 12, y: 482, width: 536, height: 28), in: remote, bold: true)
         labels["mobile"] = label("", at: NSRect(x: 12, y: 421, width: 536, height: 54), in: remote)
-        _ = label("Telefondan gelen aramayı Asistan ile cevaplayabilir, etkin görüşmeye not gönderebilir, canlı metni izleyebilir ve görüşmeyi sonlandırabilirsiniz. Aynı Wi-Fi ve bu Mac’in eşleştirme kodu gerekir.", at: NSRect(x: 12, y: 332, width: 536, height: 80), in: remote)
+        _ = label("Telefondan gelen aramayı Asistan ile cevaplayabilir, etkin görüşmeye not gönderebilir, canlı metni izleyebilir ve görüşmeyi sonlandırabilirsiniz. Aynı Wi-Fi ve bu Mac’in eşleştirme QR kodu gerekir.", at: NSRect(x: 12, y: 332, width: 536, height: 80), in: remote)
         _ = button("Mobil bağlantı ve eşleştirme…", action: #selector(mobileSettings), at: NSRect(x: 12, y: 288, width: 310, height: 32), in: remote)
         _ = label("Odak sırasında otomatik cevaplama", at: NSRect(x: 12, y: 224, width: 536, height: 28), in: remote, bold: true)
         labels["focus"] = label("", at: NSRect(x: 12, y: 149, width: 536, height: 65), in: remote)

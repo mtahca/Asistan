@@ -68,3 +68,33 @@ struct AssistantPreferences: Codable, Equatable {
         NSError(domain: "AsistanPreferences", code: 1, userInfo: [NSLocalizedDescriptionKey: text])
     }
 }
+
+/// Ready-made instructions shown above the note field on the Mac and on Asistan Mobile.
+enum QuickNotes {
+    static let defaults = [
+        "Şu an müsait değilim; en kısa sürede dönüş yapacağım.",
+        "Mesajını ve geri dönüş numarasını not al.",
+        "Konuyu kısaca öğren, sonra görüşmeyi kibarca bitir.",
+        "Acil bir durumsa bana hemen mesaj atmasını söyle.",
+    ]
+    static let maxCount = 8
+    static let maxLength = 200
+    /// One note per line; blank lines are skipped and long lines are rejected rather than cut.
+    static func parse(_ text: String) throws -> [String] {
+        let notes = text.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        guard notes.count <= maxCount else { throw AssistantPreferences.invalid("En fazla \(maxCount) hazır not yazabilirsiniz.") }
+        guard notes.allSatisfy({ $0.unicodeScalars.count <= maxLength }) else {
+            throw AssistantPreferences.invalid("Her hazır not en fazla \(maxLength) karakter olabilir.")
+        }
+        return notes
+    }
+    static func load(from defaults: UserDefaults = .standard) -> [String] {
+        guard let stored = defaults.stringArray(forKey: "quickNotes"),
+              let notes = try? parse(stored.joined(separator: "\n")), !notes.isEmpty else { return Self.defaults }
+        return notes
+    }
+    /// An empty list restores the defaults.
+    static func save(_ notes: [String], to defaults: UserDefaults = .standard) {
+        if notes.isEmpty { defaults.removeObject(forKey: "quickNotes") } else { defaults.set(notes, forKey: "quickNotes") }
+    }
+}

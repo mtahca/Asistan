@@ -99,6 +99,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var usingLegacyData = false
     var statusSymbol = ""
     var liveFollow = true
+    var quickNotePopup: NSPopUpButton!
     var recentMenu: NSMenu!
     var ringerName = ""
     var ringDiagnosticSaved = false
@@ -182,10 +183,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         mobile.onPause = { [weak self] on in self?.setPaused(on) }
         mobile.onChanged = { [weak self] in self?.refreshMobileMenu(); self?.mobileSettings?.refresh() }
+        mobile.setQuickNotes(QuickNotes.load())
         mobile.startIfEnabled()
         if let notes = try? FileManager.default.contentsOfDirectory(at: projectDir.appendingPathComponent("notlar"), includingPropertiesForKeys: nil) {
             lastNotePath = notes.filter { $0.pathExtension == "md" }.sorted { $0.lastPathComponent < $1.lastPathComponent }.last?.path
         }
+        publishHistory(fresh: false)
         let st = setupStatus()
         if st.audio && st.py && st.key { startAgent() } else { showSetup() }
         CallObserver.shared.start()
@@ -774,6 +777,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             if let path = event["path"] as? String, validNotePath(path) {
                 if !busy && (lastNotePath == nil || lastNotePath == path) { lastNotePath = path }
                 notify(kind == "summary_saved" ? "Arama özeti hazır" : "Döküm kaydedildi; özet hazırlanamadı", (path as NSString).lastPathComponent)
+                publishHistory(fresh: kind == "summary_saved")
             }
             updateStatus(); return
         }
@@ -846,6 +850,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard let handle = agentInput, let data = try? JSONSerialization.data(withJSONObject: command) else { return false }
         do { try handle.write(contentsOf: data + Data([10])); return true }
         catch { logLine("Ajan komutu iletilemedi"); return false }
+    }
+    func publishHistory(fresh: Bool) {
+        mobile.setHistory(RecentNotes.historyItems(in: projectDir.appendingPathComponent("notlar")), fresh: fresh)
+    }
+    func quickNotesChanged() {
+        mobile.setQuickNotes(QuickNotes.load()); rebuildQuickNotes()
     }
     func validNotePath(_ path: String) -> Bool {
         RecentNotes.isNote(path: path, in: projectDir.appendingPathComponent("notlar"))

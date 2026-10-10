@@ -23,10 +23,28 @@ enum RecentNotes {
     }
 
     /// The caller line sits near the top; notes may be long, so read only the beginning.
-    static func header(of url: URL) -> String {
+    static func header(of url: URL, bytes: Int = 2048) -> String {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return "" }
         defer { try? handle.close() }
-        return String(decoding: (try? handle.read(upToCount: 2048)) ?? Data(), as: UTF8.self)
+        return String(decoding: (try? handle.read(upToCount: bytes)) ?? Data(), as: UTF8.self)
+    }
+
+    /// The text under "## Özet", up to the next heading.
+    static func summary(from text: String) -> String {
+        guard let start = text.range(of: "## Özet\n") else { return "" }
+        let rest = text[start.upperBound...]
+        let end = rest.range(of: "\n## ")?.lowerBound ?? rest.endIndex
+        return rest[..<end].trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Recent calls for Asistan Mobile: titles and summaries only, never the full transcript.
+    static func historyItems(in folder: URL, limit: Int = 20) -> [[String: Any]] {
+        list(in: folder, limit: limit).map { note in
+            let text = header(of: note.url, bytes: 32768)
+            let modified = (try? note.url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? Date()
+            return ["id": note.url.lastPathComponent, "title": note.title, "ts": modified.timeIntervalSince1970,
+                    "summary": String(summary(from: text).prefix(1200))]
+        }
     }
 
     /// "2026-10-09_14-05-33_ab12cd34.md" + "Arayan ekranı: Ayşe" -> "09.10 14:05 · Ayşe"

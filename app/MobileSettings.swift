@@ -1,4 +1,5 @@
 import Cocoa
+import CoreImage
 
 final class MobileSettingsController: NSObject, NSWindowDelegate {
     let app: AppDelegate
@@ -9,6 +10,9 @@ final class MobileSettingsController: NSObject, NSWindowDelegate {
     var focusStatus: NSTextField!
     var codeLabel: NSTextField!
     var rotateButton: NSButton!
+    var legacyToggle: NSButton!
+    var qrView: NSImageView!
+    var shownLink = ""
     var timer: Timer?
     var addresses: [String] = []
     init(app: AppDelegate) { self.app = app; super.init(); build() }
@@ -19,22 +23,34 @@ final class MobileSettingsController: NSObject, NSWindowDelegate {
         f.isSelectable = true; window.contentView!.addSubview(f); return f
     }
     func build() {
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 590), styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 700), styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
         window.title = "Asistan — iPhone ve Odak"; window.isReleasedWhenClosed = false; window.delegate = self
         mobileToggle = NSButton(checkboxWithTitle: "Asistan Mobile bağlantısını aç", target: self, action: #selector(toggleMobile))
-        mobileToggle.frame = NSRect(x: 24, y: 543, width: 550, height: 28); window.contentView!.addSubview(mobileToggle)
-        mobileStatus = label("", 509, height: 30)
-        codeLabel = label("", 465, height: 40, bold: true)
-        _ = label("Aynı Wi-Fi'deki telefonda Asistan Mobile → Ayarlar → Mac listesinden adı ‘— Asistan’ ile biten bilgisayarı seçin ya da Mac adresi alanına bu Mac’in yerel IP adresini yazın. Yukarıdaki kodu telefondaki eşleştirme alanına girin.", 378, height: 82)
-        _ = label("Asistan Mobile’ın varsayılan 47821 portu kullanılır; Bonjour listesi de elle adres de çalışır. Eski Beta’yı seçtiyseniz listeden yeniden seçin; kod aynıdır. Bağlantı kodla şifrelenir; kodu bilen cihaz cevaplama, not ve sonlandırma komutlarını kullanabilir.", 291, height: 80)
-        rotateButton = NSButton(title: "Eşleştirme kodunu yenile", target: self, action: #selector(rotateCode)); rotateButton.bezelStyle = .rounded
-        rotateButton.frame = NSRect(x: 24, y: 249, width: 245, height: 32); window.contentView!.addSubview(rotateButton)
+        mobileToggle.frame = NSRect(x: 24, y: 653, width: 550, height: 28); window.contentView!.addSubview(mobileToggle)
+        mobileStatus = label("", 619, height: 30)
+        qrView = NSImageView(frame: NSRect(x: 24, y: 405, width: 200, height: 200))
+        qrView.imageScaling = .scaleProportionallyUpOrDown; window.contentView!.addSubview(qrView)
+        let pairHint = NSTextField(wrappingLabelWithString: "iPhone'da Asistan Mobile → QR kodu tara ile bu kodu okutun ya da iPhone Kamera ile okutup bağlantıyı açın. Kod bu Mac'in adını, adresini ve rastgele bir eşleştirme anahtarını taşır; başkasıyla paylaşmayın.")
+        pairHint.frame = NSRect(x: 240, y: 470, width: 336, height: 130); pairHint.isSelectable = true; window.contentView!.addSubview(pairHint)
+        rotateButton = NSButton(title: "Eşleştirmeyi yenile", target: self, action: #selector(rotateCode)); rotateButton.bezelStyle = .rounded
+        rotateButton.frame = NSRect(x: 240, y: 415, width: 245, height: 32); window.contentView!.addSubview(rotateButton)
+        legacyToggle = NSButton(checkboxWithTitle: "Eski 8 haneli kodla bağlanmaya izin ver (eski Asistan Mobile sürümleri için)", target: self, action: #selector(toggleLegacy))
+        legacyToggle.frame = NSRect(x: 24, y: 362, width: 552, height: 28); window.contentView!.addSubview(legacyToggle)
+        codeLabel = label("", 316, height: 40, bold: true)
+        _ = label("QR ile eşleşen telefonlar 47822 portunu, eski kodu kullananlar 47821 portunu kullanır. 8 haneli kod, ağdaki biri tarafından kaydedilen bir bağlantıdan tahmin edilebilir; bütün telefonlarınız QR ile eşleşince eski kodu kapatın. Eşleşen cihaz cevaplama, not ve sonlandırma komutlarını kullanabilir.", 236, height: 76)
         focusToggle = NSButton(checkboxWithTitle: "Odak açıkken gelen aramaları otomatik cevapla", target: self, action: #selector(toggleFocus))
         focusToggle.frame = NSRect(x: 24, y: 200, width: 552, height: 28); window.contentView!.addSubview(focusToggle)
         focusStatus = label("", 145, height: 48)
         _ = label("Bu seçenek tüm Odak modları için geçerlidir. Odak kapandığında normal cevaplama seçiminiz geri geçer. Duraklatma her iki otomatik modu da durdurur. Durum okunamazsa yalnızca Odak seçeneği otomatik cevap başlatmaz.", 64, height: 72)
         let permission = NSButton(title: "Odak için Tam Disk Erişimi ayarları", target: self, action: #selector(openFocusPermission)); permission.bezelStyle = .rounded
         permission.frame = NSRect(x: 24, y: 20, width: 360, height: 32); window.contentView!.addSubview(permission)
+    }
+    static func qrImage(_ text: String) -> NSImage? {
+        guard let filter = CIFilter(name: "CIQRCodeGenerator") else { return nil }
+        filter.setValue(Data(text.utf8), forKey: "inputMessage"); filter.setValue("M", forKey: "inputCorrectionLevel")
+        guard let output = filter.outputImage?.transformed(by: CGAffineTransform(scaleX: 10, y: 10)) else { return nil }
+        let rep = NSCIImageRep(ciImage: output)
+        let image = NSImage(size: rep.size); image.addRepresentation(rep); return image
     }
     func show() {
         addresses = LiveProtocol.localAddresses()
@@ -45,17 +61,23 @@ final class MobileSettingsController: NSObject, NSWindowDelegate {
         app.focusMonitor.refresh(enabled: app.focusAuto)
         mobileToggle.state = app.mobile.enabled ? .on : .off
         mobileStatus.stringValue = app.mobile.status
-        codeLabel.stringValue = app.mobile.enabled ? "Eşleştirme kodu: \(app.mobile.displayCode)" + (addresses.isEmpty ? "" : "\nMac adresi: " + addresses.joined(separator: ", ")) : "Mobil bağlantı kapalı; açınca eşleştirme kodu gösterilir."
-        rotateButton.isEnabled = app.mobile.enabled
+        let enabled = app.mobile.enabled
+        codeLabel.stringValue = !enabled ? "Mobil bağlantı kapalı; açınca eşleştirme QR kodu gösterilir."
+            : (app.mobile.legacyEnabled ? "Eski kod: \(app.mobile.displayCode)" : "Eski kodla bağlantı kapalı") + (addresses.isEmpty ? "" : "\nMac adresi: " + addresses.joined(separator: ", "))
+        let link = enabled ? PairingLink(key: app.mobile.key, mac: app.mobile.macName, hosts: addresses).url : ""
+        if link != shownLink { shownLink = link; qrView.image = link.isEmpty ? nil : Self.qrImage(link) }
+        legacyToggle.state = app.mobile.legacyEnabled ? .on : .off; legacyToggle.isEnabled = enabled
+        rotateButton.isEnabled = enabled
         focusToggle.state = app.focusAuto ? .on : .off
         focusStatus.stringValue = app.focusAuto ? app.focusMonitor.status : "Odak sırasında otomatik cevaplama kapalı."
         if app.focusAuto && app.focusMonitor.active == nil { focusStatus.stringValue += "\nAsistan’a Tam Disk Erişimi verip yeniden açın." }
     }
     @objc func toggleMobile() { app.mobile.setEnabled(mobileToggle.state == .on); refresh() }
+    @objc func toggleLegacy() { app.mobile.setLegacyEnabled(legacyToggle.state == .on); refresh() }
     @objc func toggleFocus() { app.setFocusAuto(focusToggle.state == .on); refresh() }
     @objc func rotateCode() {
-        let a = NSAlert(); a.messageText = "Eşleştirme kodu yenilensin mi?"
-        a.informativeText = "Bağlı telefonlar ayrılır. Yeni kodu Asistan Mobile'a yeniden girmelisiniz. Mac'teki görüşme devam eder."
+        let a = NSAlert(); a.messageText = "Eşleştirme yenilensin mi?"
+        a.informativeText = "QR anahtarı ve eski kod yenilenir. Bağlı telefonlar ayrılır; her telefonda yeni QR kodu okutmanız gerekir. Mac'teki görüşme devam eder."
         a.addButton(withTitle: "Yenile"); a.addButton(withTitle: "Vazgeç")
         if a.runModal() == .alertFirstButtonReturn { app.mobile.regenerateCode(); refresh() }
     }

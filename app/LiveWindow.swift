@@ -49,8 +49,7 @@ extension AppDelegate {
         copy.frame = NSRect(x: 10, y: 48, width: 90, height: 30)
         w.contentView!.addSubview(copy)
         let presets = NSPopUpButton(frame: NSRect(x: 106, y: 50, width: 150, height: 26), pullsDown: true)
-        presets.addItem(withTitle: "Hazır notlar")
-        for text in Self.quickNotes { presets.addItem(withTitle: text) }
+        quickNotePopup = presets; rebuildQuickNotes()
         presets.target = self; presets.action = #selector(chooseQuickNote(_:))
         presets.toolTip = "Seçilen not yazı alanına eklenir; Enter ile gönderin."
         w.contentView!.addSubview(presets)
@@ -71,14 +70,13 @@ extension AppDelegate {
         liveText = tv
     }
 
-    static let quickNotes = [
-        "Şu an müsait değilim; en kısa sürede dönüş yapacağım.",
-        "Mesajını ve geri dönüş numarasını not al.",
-        "Konuyu kısaca öğren, sonra görüşmeyi kibarca bitir.",
-        "Acil bir durumsa bana hemen mesaj atmasını söyle.",
-    ]
+    /// Notes are edited in Kişiselleştirme; the first item is the pull-down's title.
+    func rebuildQuickNotes() {
+        quickNotePopup.removeAllItems(); quickNotePopup.addItem(withTitle: "Hazır notlar")
+        for text in QuickNotes.load() { quickNotePopup.addItem(withTitle: text); quickNotePopup.lastItem?.representedObject = text }
+    }
     @objc func chooseQuickNote(_ sender: NSPopUpButton) {
-        guard let text = sender.selectedItem?.title, Self.quickNotes.contains(text) else { return }
+        guard let text = sender.selectedItem?.representedObject as? String else { return }
         noteField.stringValue = text
         liveWindow.makeFirstResponder(noteField)
     }
