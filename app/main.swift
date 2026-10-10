@@ -55,7 +55,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var missing = 0
     var liveWindow: NSWindow!
     var liveRows: [[String: Any]] = []
-    var liveExtras: [(String, String, NSColor?)] = []
+    var liveExtras: [(String, String, NSColor?, String)] = []  // speaker, text, color (nil: note), clock time
     var liveCallerHeading = ""
     var renderingLive = false
     var liveText: NSTextView!

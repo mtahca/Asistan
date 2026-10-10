@@ -98,7 +98,7 @@ extension AppDelegate {
             let speaker = row["speaker"] as? String ?? ""
             phoneRows.append((speaker == "Arayan" ? "caller" : "assistant", speaker, row["text"] as? String ?? ""))
         }
-        for (speaker, text, color) in liveExtras { phoneRows.append((color == nil ? "note" : "you", speaker, text)) }
+        for (speaker, text, color, _) in liveExtras { phoneRows.append((color == nil ? "note" : "you", speaker, text)) }
         mobile.replace(phoneRows)
         liveFollow = liveAtBottom()
         let offset = liveText.enclosingScrollView?.contentView.bounds.origin
@@ -115,26 +115,38 @@ extension AppDelegate {
             let speaker = row["speaker"] as? String ?? ""
             appendLive(speaker, row["text"] as? String ?? "", color: speaker == "Arayan" ? .systemBlue : .systemGreen)
         }
-        for (speaker, text, color) in liveExtras {
-            if let color = color { appendLive(speaker, text, color: color) }
+        for (speaker, text, color, stamp) in liveExtras {
+            if let color = color { appendLive(speaker, text, color: color, stamp: stamp) }
             else { appendLiveNote(text) }
         }
     }
-    func appendLive(_ speaker: String, _ text: String, color: NSColor) {
+    static let liveClock: DateFormatter = { let f = DateFormatter(); f.dateFormat = "HH:mm:ss"; return f }()
+    func appendLive(_ speaker: String, _ text: String, color: NSColor, stamp: String? = nil) {
+        let stamp = stamp ?? (renderingLive ? "" : Self.liveClock.string(from: Date()))
         if !renderingLive {
             liveFollow = liveAtBottom()
-            liveExtras.append((speaker, text, color))
+            liveExtras.append((speaker, text, color, stamp))
             mobile.append(kind: speaker == "Arayan" ? "caller" : (speaker == "Asistan" ? "assistant" : "you"), speaker: speaker, text: text)
         }
         // A tinted block per message, like the phone: the caller on the left, everyone else on the right.
-        let block = NSTextBlock()
+        // Without an explicit width a block shrinks to one character and the text runs vertically.
+        // A block paints its tint over its margins too, so the right-hand bubble is a one-column table
+        // whose margin leaves the left quarter empty; each message needs its own table.
+        let block: NSTextBlock
+        if speaker == "Arayan" {
+            block = NSTextBlock()
+            block.setValue(75, type: .percentageValueType, for: .width)
+        } else {
+            let table = NSTextTable(); table.numberOfColumns = 1
+            table.setValue(100, type: .percentageValueType, for: .width)
+            table.setWidth(25, type: .percentageValueType, for: .margin, edge: .minX)
+            block = NSTextTableBlock(table: table, startingRow: 0, rowSpan: 1, startingColumn: 0, columnSpan: 1)
+        }
         block.backgroundColor = color.withAlphaComponent(0.13)
         block.setWidth(8, type: .absoluteValueType, for: .padding)
-        block.setWidth(speaker == "Arayan" ? 70 : 0, type: .absoluteValueType, for: .margin, edge: .maxX)
-        block.setWidth(speaker == "Arayan" ? 0 : 70, type: .absoluteValueType, for: .margin, edge: .minX)
         let style = NSMutableParagraphStyle(); style.textBlocks = [block]
         let a = NSMutableAttributedString()
-        a.append(NSAttributedString(string: speaker + "\n", attributes: [
+        a.append(NSAttributedString(string: speaker + (stamp.isEmpty ? "" : "  " + stamp) + "\n", attributes: [
             .font: NSFont.boldSystemFont(ofSize: 12), .foregroundColor: color, .paragraphStyle: style]))
         a.append(NSAttributedString(string: text + "\n", attributes: [
             .font: NSFont.systemFont(ofSize: 13), .foregroundColor: NSColor.labelColor, .paragraphStyle: style]))
@@ -143,10 +155,11 @@ extension AppDelegate {
         scrollLiveIfFollowing()
     }
 
-    func appendLiveNote(_ text: String) {
+    func appendLiveNote(_ note: String) {
+        var text = note
         if !renderingLive {
             liveFollow = liveAtBottom()
-            if text != liveCallerHeading { liveExtras.append(("", text, nil)) }
+            if text != liveCallerHeading { text = Self.liveClock.string(from: Date()) + " · " + text; liveExtras.append(("", text, nil, "")) }
             mobile.append(kind: text.contains("Arayan araya girdi") ? "interrupted" : "note", speaker: "", text: text)
         }
         let centered = NSMutableParagraphStyle(); centered.alignment = .center
