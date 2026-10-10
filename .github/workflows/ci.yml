@@ -26,7 +26,7 @@ jobs:
         run: |
           branch="${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}"
           curl -fsSL "https://raw.githubusercontent.com/mtahca/Asistan-Mobile/$branch/AsistanCanli/MobileProtocol.swift" -o "$RUNNER_TEMP/mobile.swift" \
-            || curl -fsSL "https://raw.githubusercontent.com/mtahca/Asistan-Mobile/HEAD/AsistanCanli/MobileProtocol.swift" -o "$RUNNER_TEMP/mobile.swift"
+            || curl -fsSL "https://raw.githubusercontent.com/mtahca/Asistan-Mobile/main/AsistanCanli/MobileProtocol.swift" -o "$RUNNER_TEMP/mobile.swift"
           diff -u app/MobileProtocol.swift "$RUNNER_TEMP/mobile.swift"
       # macOS, Info.plist'te listelenmeyen Bonjour türünü yayınlamaz (NoAuth); mobil bağlantı o zaman hiç açılmaz.
       - name: Bonjour servis türü Info.plist'te
