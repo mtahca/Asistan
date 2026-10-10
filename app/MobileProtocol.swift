@@ -1,4 +1,7 @@
-// Wire-compatible with Asistan Mobile v1. The fixed port also serves Mobile's manual address field.
+// Shared by Asistan (app/MobileProtocol.swift) and Asistan Mobile (AsistanCanli/MobileProtocol.swift).
+// Both copies must stay byte-identical; CI in each repository compares them.
+// v1: 8-digit pairing code on port 47821. v2: random 256-bit key from a QR code on port 47822.
+// An 8-digit code can be guessed offline from one recorded handshake; a 256-bit key cannot.
 import Foundation
 import Network
 import Security
@@ -8,6 +11,10 @@ enum LiveProtocol {
     static let serviceType = "_asistan-canli._tcp"
     static let port: UInt16 = 47821
     static let version = 1
+    static let secureServiceType = "_asistan-v2._tcp"
+    static let securePort: UInt16 = 47822
+    /// Announced in hello; clients check features here instead of comparing version numbers.
+    static let capabilities = ["pause", "quickNotes", "history", "secure"]
     static func serviceName(host: String) -> String {
         let suffix = " — Asistan"
         var base = host.isEmpty ? "Mac" : host
@@ -15,21 +22,28 @@ enum LiveProtocol {
         return base + suffix
     }
     static func tlsOptions(code: String) -> NWProtocolTLS.Options {
+        tlsOptions(psk: Data(HMAC<SHA256>.authenticationCode(for: Data("asistan-canli-v1".utf8), using: SymmetricKey(data: Data(code.utf8)))),
+                   identity: "asistan-canli")
+    }
+    static func tlsOptions(key: Data) -> NWProtocolTLS.Options {
+        tlsOptions(psk: Data(HMAC<SHA256>.authenticationCode(for: Data("asistan-canli-v2".utf8), using: SymmetricKey(data: key))),
+                   identity: "asistan-v2")
+    }
+    private static func tlsOptions(psk: Data, identity: String) -> NWProtocolTLS.Options {
         let tls = NWProtocolTLS.Options()
-        let key = SymmetricKey(data: Data(code.utf8))
-        let psk = Data(HMAC<SHA256>.authenticationCode(for: Data("asistan-canli-v1".utf8), using: key))
-        let identity = Data("asistan-canli".utf8)
         let pskData = psk.withUnsafeBytes { DispatchData(bytes: $0) }
-        let identityData = identity.withUnsafeBytes { DispatchData(bytes: $0) }
+        let identityData = Data(identity.utf8).withUnsafeBytes { DispatchData(bytes: $0) }
         sec_protocol_options_add_pre_shared_key(tls.securityProtocolOptions, pskData as __DispatchData, identityData as __DispatchData)
         sec_protocol_options_append_tls_ciphersuite(tls.securityProtocolOptions,
             tls_ciphersuite_t(rawValue: UInt16(TLS_PSK_WITH_AES_128_GCM_SHA256))!)
         return tls
     }
-    static func parameters(code: String) -> NWParameters {
+    static func parameters(code: String) -> NWParameters { parameters(tls: tlsOptions(code: code)) }
+    static func parameters(key: Data) -> NWParameters { parameters(tls: tlsOptions(key: key)) }
+    private static func parameters(tls: NWProtocolTLS.Options) -> NWParameters {
         let tcp = NWProtocolTCP.Options()
         tcp.enableKeepalive = true; tcp.keepaliveIdle = 10; tcp.keepaliveInterval = 5; tcp.keepaliveCount = 3
-        let p = NWParameters(tls: tlsOptions(code: code), tcp: tcp)
+        let p = NWParameters(tls: tls, tcp: tcp)
         p.includePeerToPeer = true
         return p
     }
@@ -53,6 +67,41 @@ enum LiveProtocol {
     static func encode(_ obj: [String: Any]) -> Data? {
         guard var d = try? JSONSerialization.data(withJSONObject: obj) else { return nil }
         d.append(0x0A); return d
+    }
+}
+
+/// QR payload: asistan://pair?k=<base64url key>&n=<Mac name>&h=<IPv4,IPv4>
+struct PairingLink: Equatable {
+    static let keyLength = 32
+    let key: Data
+    let mac: String
+    let hosts: [String]
+    init(key: Data, mac: String, hosts: [String]) { self.key = key; self.mac = mac; self.hosts = hosts }
+    init?(_ text: String) {
+        guard let parts = URLComponents(string: text.trimmingCharacters(in: .whitespacesAndNewlines)),
+              parts.scheme == "asistan", parts.host == "pair" else { return nil }
+        func value(_ name: String) -> String { parts.queryItems?.first { $0.name == name }?.value ?? "" }
+        guard let key = Self.decode(value("k")), key.count == Self.keyLength else { return nil }
+        self.key = key
+        mac = String(value("n").prefix(63))
+        hosts = value("h").split(separator: ",").map(String.init).filter { !$0.isEmpty }.prefix(4).map { $0 }
+    }
+    var url: String {
+        var parts = URLComponents()
+        parts.scheme = "asistan"; parts.host = "pair"
+        parts.queryItems = [URLQueryItem(name: "k", value: Self.encode(key)), URLQueryItem(name: "n", value: mac),
+                            URLQueryItem(name: "h", value: hosts.joined(separator: ","))]
+        return parts.string ?? ""
+    }
+    static func newKey() -> Data { SymmetricKey(size: .bits256).withUnsafeBytes { Data($0) } }
+    static func encode(_ data: Data) -> String {
+        data.base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+    }
+    static func decode(_ text: String) -> Data? {
+        var base64 = text.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+        while base64.count % 4 != 0 { base64 += "=" }
+        return Data(base64Encoded: base64)
     }
 }
 
@@ -84,20 +133,23 @@ enum MobileCommand: Equatable {
     }
 }
 
+/// Newline-delimited JSON. The Mac accepts short commands; the phone accepts larger snapshots.
 struct MobileFrames {
     static let limit = 16384
+    let maxLine: Int
     private var buffer = Data()
+    init(limit: Int = MobileFrames.limit) { maxLine = limit }
     mutating func consume(_ data: Data) throws -> [[String: Any]] {
         buffer.append(data)
         var result: [[String: Any]] = []
         while let nl = buffer.firstIndex(of: 0x0A) {
             let line = buffer.subdata(in: buffer.startIndex..<nl)
             buffer.removeSubrange(buffer.startIndex...nl)
-            guard line.count <= Self.limit,
+            guard line.count <= maxLine,
                   let obj = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { throw InvalidFrame() }
             result.append(obj)
         }
-        guard buffer.count <= Self.limit else { throw InvalidFrame() }
+        guard buffer.count <= maxLine else { throw InvalidFrame() }
         return result
     }
     struct InvalidFrame: Error {}
