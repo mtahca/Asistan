@@ -1460,8 +1460,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         catch { logLine("Ajan komutu iletilemedi"); return false }
     }
     func validNotePath(_ path: String) -> Bool {
-        let url = URL(fileURLWithPath: path).standardizedFileURL
-        return url.deletingLastPathComponent() == projectDir.appendingPathComponent("notlar").standardizedFileURL && url.pathExtension == "md"
+        RecentNotes.isNote(path: path, in: projectDir.appendingPathComponent("notlar"))
     }
     func startConfirmedSession() {
         guard busy, let sid = sessionID else { return }
