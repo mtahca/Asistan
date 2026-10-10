@@ -129,13 +129,21 @@ extension AppDelegate {
             mobile.append(kind: speaker == "Arayan" ? "caller" : (speaker == "Asistan" ? "assistant" : "you"), speaker: speaker, text: text)
         }
         // A tinted block per message, like the phone: the caller on the left, everyone else on the right.
-        let block = NSTextBlock()
+        // Without an explicit width a block shrinks to one character and the text runs vertically.
+        // A block paints its tint over its margins too, so the right-hand bubble is a one-column table
+        // whose margin leaves the left quarter empty; each message needs its own table.
+        let block: NSTextBlock
+        if speaker == "Arayan" {
+            block = NSTextBlock()
+            block.setValue(75, type: .percentageValueType, for: .width)
+        } else {
+            let table = NSTextTable(); table.numberOfColumns = 1
+            table.setValue(100, type: .percentageValueType, for: .width)
+            table.setWidth(25, type: .percentageValueType, for: .margin, edge: .minX)
+            block = NSTextTableBlock(table: table, startingRow: 0, rowSpan: 1, startingColumn: 0, columnSpan: 1)
+        }
         block.backgroundColor = color.withAlphaComponent(0.13)
         block.setWidth(8, type: .absoluteValueType, for: .padding)
-        // Without an explicit width the block shrinks to one character and the text runs vertically.
-        block.setValue(75, type: .percentageValueType, for: .width)
-        block.setWidth(speaker == "Arayan" ? 20 : 0, type: .percentageValueType, for: .margin, edge: .maxX)
-        block.setWidth(speaker == "Arayan" ? 0 : 20, type: .percentageValueType, for: .margin, edge: .minX)
         let style = NSMutableParagraphStyle(); style.textBlocks = [block]
         let a = NSMutableAttributedString()
         a.append(NSAttributedString(string: speaker + (stamp.isEmpty ? "" : "  " + stamp) + "\n", attributes: [
