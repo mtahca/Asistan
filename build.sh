@@ -18,4 +18,4 @@ IDENT=$(/usr/bin/security find-identity -p codesigning 2>/dev/null | /usr/bin/aw
 if [ -z "$IDENT" ]; then IDENT="-"; echo "Uyarı: AsistanLocal kimliği yok; geçici imza kullanılıyor (bash make_cert.sh ile oluşturabilirsiniz)."; fi
 codesign --force --sign "$IDENT" "$APP"
 codesign --verify --strict "$APP"
-echo "Asistan derlendi: $(pwd)/$APP"
+echo "Asistan derlendi: $(cd "$(dirname "$APP")" && pwd)/$(basename "$APP")"
