@@ -102,7 +102,9 @@ class AppleSTT:
 
     def transcribe(self, audio) -> str:
         with self.lock, tempfile.NamedTemporaryFile(suffix='.wav') as f:
-            f.write(wav_bytes(audio, self.np)); f.flush()
+            # Without trailing silence the dictation model drops the last syllable.
+            padded = self.np.concatenate([audio.astype('float32'), self.np.zeros(8000, dtype='float32')])
+            f.write(wav_bytes(padded, self.np)); f.flush()
             try:
                 self.proc.stdin.write(json.dumps({'path': f.name}) + '\n'); self.proc.stdin.flush()
             except (BrokenPipeError, OSError):
