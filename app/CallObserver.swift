@@ -1,5 +1,6 @@
 import Cocoa
 import ApplicationServices
+import AVFoundation
 
 // MARK: - Accessibility yardımcıları
 
