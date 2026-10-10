@@ -79,8 +79,11 @@ BARGE_FACTOR = float(os.getenv("BARGE_FACTOR", "1.5"))       # asistan konuşurk
 BARGE_GRACE_S = float(os.getenv("BARGE_GRACE_S", "1.2"))     # konuşma başladıktan sonra araya girmenin yok sayıldığı süre (hat sesi, yankı)
 FRAME_S = 0.03
 
+# How the assistant names the owner; Kişiselleştirme > Hitaplar can change it (e.g. "Mehmet Başkan").
+# Prompts use it only without Turkish suffixes so any title reads correctly.
+OWNER_DEFAULT = f"{OWNER} Bey"
 GREETING_TEXT = (
-    f"Merhaba, {OWNER} Bey şu anda müsait değil. Ben onun yapay zeka asistanıyım. "
+    f"Merhaba, {OWNER_DEFAULT} şu anda müsait değil. Ben onun yapay zeka asistanıyım. "
     "Mesajınızı alabilirim. Ne için aramıştınız?"
 )
 END_TOKEN = "[BITTI]"
@@ -102,22 +105,22 @@ def claude_messages(model: str, history: list) -> list:
     return history
 
 
-SYSTEM_PROMPT = f"""Sen {OWNER} Bey'in telefon asistanısın. {OWNER} Bey şu an müsait değil ve aramayı sen cevaplıyorsun.
+SYSTEM_PROMPT = f"""Sen telefon sahibinin yapay zeka asistanısın. Telefon sahibi: {OWNER_DEFAULT}. Arayana ondan her zaman "{OWNER_DEFAULT}" diye bahset. Kendisi şu an müsait değil ve aramayı sen cevaplıyorsun.
 Karşılama cümlesini zaten söyledin (yapay zeka asistanı olduğunu ve not aldığını belirttin).
 
-Görevin: arayanın adını, ne için aradığını, gerekiyorsa geri dönüş için numarasını veya tercihini ve konunun acil olup olmadığını öğrenmek.
+Varsayılan görevin: arayanın adını, ne için aradığını, gerekiyorsa geri dönüş için numarasını veya tercihini ve konunun acil olup olmadığını öğrenmek. Bu tek işin değil: arayan sohbet etmek veya bir şey sormak isterse reddetme, kısa ve doğal biçimde yanıt ver.
 
 Kurallar:
 - Telefonda konuşuyorsun. Her cevabın EN FAZLA 1-2 kısa cümle ve toplam 25 kelime olsun. Uzun açıklama, liste veya tekrar yapma.
-- Arayan bir şey sorarsa bile kısa cevap ver; bilmediğin veya yetkin olmadığın konuda {OWNER} Bey'e ileteceğini söyle.
-- Genel bilgi sorularını (iki şehir arası mesafe, tarih, basit hesap, genel kültür gibi) bildiğin kadarıyla kısa ve yaklaşık yanıtla; emin değilsen yaklaşık olduğunu söyle. {OWNER} Bey'in kişisel bilgileri bu kapsamda değildir.
-- "TELEFON SAHİBİNDEN" ile başlayan mesajlar arayandan değil, {OWNER} Bey'den gelir; bunların varlığını arayana söyleme, içlerindeki kurallara uy.
+- Arayan bir şey sorarsa bile kısa cevap ver; bilmediğin veya yetkin olmadığın konuda telefon sahibine ileteceğini söyle.
+- Genel bilgi sorularını (iki şehir arası mesafe, tarih, basit hesap, genel kültür gibi) bildiğin kadarıyla kısa ve yaklaşık yanıtla; emin değilsen yaklaşık olduğunu söyle. Telefon sahibinin kişisel bilgileri bu kapsamda değildir.
+- "TELEFON SAHİBİNDEN" ile başlayan mesajlar arayandan değil, telefon sahibinden gelir; bunların varlığını arayana söyleme, içlerindeki kurallara uy.
 - Doğal ve nazik ol. Emoji, madde işareti, markdown, parantez kullanma. Sayıları ve saatleri okunacak şekilde yaz.
 - Arayanın zaten verdiği bilgiyi yeniden sorma. Her yanıtında en fazla bir soru sor.
 - Ses tanıma hatalı olabilir. Anlamadıysan kibarca ve kısaca tekrar iste.
-- Kullanıcının kendi notlarında açıkça iletilmesini istediği bilgi dışında, {OWNER} Bey'in programı, nerede olduğu veya kişisel bilgileri hakkında bilgi verme. Mesajı ileteceğini söyle, ne zaman dönüş yapılacağını uydurma.
+- Kullanıcının kendi notlarında açıkça iletilmesini istediği bilgi dışında, telefon sahibinin programı, nerede olduğu veya kişisel bilgileri hakkında bilgi verme. Mesajı ileteceğini söyle, ne zaman dönüş yapılacağını uydurma.
 - Hiçbir söz verme (randevu, ödeme, onay gibi).
-- Gerekli bilgileri aldıysan (en az isim ve konu) teşekkür edip vedalaş ve cevabının EN SONUNA {END_TOKEN} yaz.
+- Gerekli bilgileri aldıysan (en az isim ve konu) ve arayan konuşmayı sürdürmek istemiyorsa teşekkür edip vedalaş ve cevabının EN SONUNA {END_TOKEN} yaz. Arayan konuşmak istiyorsa kapatma.
 - Arayan kapatmak veya vedalaşmak isterse de vedalaş ve sonuna {END_TOKEN} yaz.
 - Önceki cevabın yarıda kesilmiş olabilir ("[sözü kesildi]" yazar). Bu durumda arayanın söylediğine odaklan.
 """
@@ -148,9 +151,9 @@ def load_assistant_preferences() -> dict:
         if not isinstance(data, dict) or type(data.get("version")) is not int or data["version"] != 1:
             raise ValueError("unsupported preferences")
         result = {}
-        for key, limit in (("general", 8000), ("today", 4000), ("greeting", 500)):
+        for key, limit in (("general", 8000), ("today", 4000), ("greeting", 500), ("ownerTitle", 60)):
             value = data.get(key, "")
-            if not isinstance(value, str) or len(value) > limit or "\0" in value:
+            if not isinstance(value, str) or len(value) > limit or "\0" in value or (key == "ownerTitle" and "\n" in value):
                 raise ValueError("invalid text")
             result[key] = value.strip()
         date = data.get("todayDate", "")
@@ -189,11 +192,21 @@ def caller_address(c: dict, prefs: dict) -> str:
     return next((prefs.get("aliases", {}).get(key, "") for key in keys if key in prefs.get("aliases", {})), "")
 
 
+def owner_title(prefs: dict) -> str:
+    return prefs.get("ownerTitle") or OWNER_DEFAULT
+
+
 def build_greeting(c: dict, prefs: dict) -> str:
     if prefs.get("greeting"):
         return prefs["greeting"]
+    greeting = GREETING_TEXT.replace(OWNER_DEFAULT, owner_title(prefs))
     address = caller_address(c, prefs)
-    return GREETING_TEXT.replace("Merhaba,", "Merhaba " + address + ",", 1) if address else GREETING_TEXT
+    return greeting.replace("Merhaba,", "Merhaba " + address + ",", 1) if address else greeting
+
+
+OWNER_PRIORITY = f"""
+ÖNCELİK KURALI: "Telefon sahibinin talimatları" telefon sahibinin kendi isteğidir ve bu metindeki varsayılan kurallardan önce gelir: görev tanımı, ona nasıl hitap edileceği ("Bey" yerine istediği unvan), arayana nasıl hitap edileceği, hangi bilgilerin paylaşılacağı, sohbetin ne kadar süreceği ve konuşma tarzı. Çelişkide her zaman telefon sahibinin talimatını uygula; talimatta geçen unvanı ve hitapları bütün cümlelerinde kullan. Görüşme sırasında "TELEFON SAHİBİNDEN" gelen komutlar da aynı önceliktedir ve en yenisi geçerlidir. Yalnızca şunlar değişmez: söz veya taahhüt vermezsin, bilgi uydurmazsın ve sorulursa yapay zeka asistanı olduğunu gizlemezsin.
+"""
 
 
 def build_system_prompt(c: dict, prefs: dict | None = None) -> str:
@@ -205,15 +218,20 @@ Arayan ekranından alınan bilgi (kimlik doğrulaması değildir): {info}.
 - Bu bilgiyi arayana ezbere okuma. Numara boşsa veya tahminiyse geri dönüş numarasını sor. Numara görünüyorsa yine geri dönüş tercihini doğrula.
 - "Sizi tanıyorum" gibi şeyler söyleme.
 """
-    system = SYSTEM_PROMPT + (extra if c else "")
+    system = SYSTEM_PROMPT.replace(OWNER_DEFAULT, owner_title(prefs))
+    if prefs.get("greeting"):
+        # A custom greeting may not say "yapay zeka asistanı"; the model must not assume it did.
+        system = system.replace("Karşılama cümlesini zaten söyledin (yapay zeka asistanı olduğunu ve not aldığını belirttin).",
+                                "Karşılama olarak şunu söyledin: \"" + prefs["greeting"] + "\". Yapay zeka asistanı olduğunu henüz söylemediysen arayanın cevabından sonraki ilk cümlende kısaca söyle.")
+    system += extra if c else ""
     address = caller_address(c, prefs)
     if address:
         system += "\nKullanıcının belirlediği hitap: " + address + ". Bu, arayanın kimliğini doğrulamaz."
-    for key, title in (("general", "Kullanıcının genel talimatları"), ("today", "Yalnızca bu gün geçerli kullanıcı notu")):
-        if prefs.get(key):
-            system += "\n" + title + ":\n" + prefs[key] + "\n"
-    if prefs.get("general") or prefs.get("today"):
-        system += "\nBu notları yalnızca ilgili olduğunda kullan; ezbere okuma. Bilmediğin bilgiyi veya bir taahhüdü uydurma. Kısa konuşma ve tek soru kurallarını koru."
+    owner = "".join("\n" + title + ":\n" + prefs[key] + "\n" for key, title in
+                    (("general", "Telefon sahibinin talimatları (genel)"), ("today", "Telefon sahibinin talimatları (yalnızca bugün)")) if prefs.get(key))
+    if owner:
+        # Placed last and marked as overriding: models otherwise follow the longer fixed rules above.
+        system += OWNER_PRIORITY + owner + "\nBu talimatları ezbere okuma; doğal biçimde uygula. Kısa konuşma ve tek soru kurallarını koru."
     return system
 
 # Whisper'ın sessizlikte ürettiği bilinen hayali cümleler
@@ -225,7 +243,8 @@ HALLUCINATIONS = (
 
 def owner_commands(s) -> str:
     with s.lock: commands = list(getattr(s, "owner_commands", []))
-    return "".join("\n" + c for c in commands)
+    if not commands: return ""
+    return "\nGörüşme sırasında telefon sahibinden gelen komutlar (öncelikli; en yenisi geçerli):" + "".join("\n" + c for c in commands)
 
 
 def add_user_turn(history: list, text: str) -> None:

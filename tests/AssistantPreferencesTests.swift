@@ -13,6 +13,7 @@ import Foundation
         prefs.today = "Toplantıdayım."; prefs.todayDate = AssistantPreferences.dateKey()
         prefs.greeting = "Merhaba, ben yapay zekâ asistanıyım."
         prefs.aliases = try AssistantPreferences.parseAliases("  AŞKIM = Ayşe Hanım\nAnne=Ayşe Hanım\n")
+        prefs.ownerTitle = "Mehmet Başkan"
         check(prefs.aliases["aşkım"] == "Ayşe Hanım")
         try prefs.save(to: path)
         check(try AssistantPreferences.load(from: path) == prefs)
@@ -26,6 +27,11 @@ import Foundation
         check(try Data(contentsOf: path) == previous)
         bad = prefs; bad.aliases = ["name\nother": "hitap"]
         do { _ = try bad.validated(); preconditionFailure("Multiline key accepted") } catch { count += 1 }
+        bad = prefs; bad.ownerTitle = "Mehmet\nBaşkan"
+        do { _ = try bad.validated(); preconditionFailure("Multiline title accepted") } catch { count += 1 }
+        // A file saved before ownerTitle existed still loads.
+        try Data(#"{"version":1,"general":"","today":"","todayDate":"","greeting":"","aliases":{}}"#.utf8).write(to: path)
+        check(try AssistantPreferences.load(from: path).ownerTitle == "")
         try Data("{broken".utf8).write(to: path)
         do { _ = try AssistantPreferences.load(from: path); preconditionFailure("Broken file accepted") } catch { count += 1 }
         check(try Data(contentsOf: path) == Data("{broken".utf8))

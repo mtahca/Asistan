@@ -4,6 +4,7 @@ final class PersonalizationController: NSObject, SettingsPane {
     let app: AppDelegate
     var window: NSWindow!
     var editors: [String: NSTextView] = [:]
+    var ownerTitle: NSTextField!
     var feedback: NSTextField!
     var dateLabel: NSTextField!
     var loadedDate = ""
@@ -20,7 +21,7 @@ final class PersonalizationController: NSObject, SettingsPane {
             ("general", "Genel talimat", "Kalıcı konuşma tercihlerinizi ve iletilmesini istediğiniz bilgileri yazın. En fazla 8000 karakter."),
             ("today", "Bugünün notu", "Yalnızca bugün geçerli bilgi. Yarın yeni aramalarda kullanılmaz. En fazla 4000 karakter."),
             ("greeting", "Karşılama", "Boş bırakırsanız mevcut karşılama kullanılır. Özel metninizde yapay zekâ asistanı olduğunu belirtin. En fazla 500 karakter."),
-            ("aliases", "Hitaplar", "Her satıra ekranda görünen adı ve hitabı yazın: Aşkım=Ayşe Hanım. Yalnızca tam ad eşleşir; ad veya cinsiyet tahmin edilmez."),
+            ("aliases", "Hitaplar", "Her satıra ekranda görünen adı ve hitabı yazın: Aşkım=Tuba Hanım. Yalnızca tam ad eşleşir; ad veya cinsiyet tahmin edilmez. Alttaki alan asistanın sizden nasıl bahsedeceğidir."),
             ("quick", "Hazır notlar", "Görüşme sırasında tek dokunuşla eklenen talimatlar. Her satıra bir not yazın; en fazla 8 not, her biri 200 karakter. Boş bırakırsanız varsayılan notlar kullanılır. iPhone'da da aynı notlar görünür.")
         ] {
             let item = NSTabViewItem(identifier: key); item.label = title
@@ -35,6 +36,12 @@ final class PersonalizationController: NSObject, SettingsPane {
             editor.isVerticallyResizable = true; editor.textContainer?.widthTracksTextView = true
             editor.autoresizingMask = [.width]; editor.textContainerInset = NSSize(width: 8, height: 8)
             scroll.documentView = editor; view.addSubview(scroll); editors[key] = editor
+            if key == "aliases" {
+                let title = NSTextField(labelWithString: "Benden bahsederken:")
+                title.frame = NSRect(x: 12, y: 15, width: 140, height: 22); view.addSubview(title)
+                ownerTitle = NSTextField(frame: NSRect(x: 155, y: 12, width: 353, height: 26))
+                ownerTitle.placeholderString = "Boşsa “Ad Bey”, ör. Mehmet Başkan"; view.addSubview(ownerTitle)
+            }
             if key == "today" {
                 dateLabel = NSTextField(labelWithString: "")
                 dateLabel.frame = NSRect(x: 12, y: 15, width: 315, height: 22); view.addSubview(dateLabel)
@@ -56,6 +63,7 @@ final class PersonalizationController: NSObject, SettingsPane {
             editors["general"]?.string = prefs.general
             editors["today"]?.string = prefs.todayDate == AssistantPreferences.dateKey() ? prefs.today : ""
             editors["greeting"]?.string = prefs.greeting
+            ownerTitle.stringValue = prefs.ownerTitle
             editors["aliases"]?.string = prefs.aliases.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: "\n")
             editors["quick"]?.string = QuickNotes.load().joined(separator: "\n")
             loadedDate = AssistantPreferences.dateKey(); dateLabel.stringValue = "Geçerli tarih: " + loadedDate
@@ -76,6 +84,7 @@ final class PersonalizationController: NSObject, SettingsPane {
             prefs.today = editors["today"]!.string.trimmingCharacters(in: .whitespacesAndNewlines)
             prefs.todayDate = prefs.today.isEmpty ? "" : loadedDate
             prefs.greeting = editors["greeting"]!.string.trimmingCharacters(in: .whitespacesAndNewlines)
+            prefs.ownerTitle = ownerTitle.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
             prefs.aliases = try AssistantPreferences.parseAliases(editors["aliases"]!.string)
             let quick = try QuickNotes.parse(editors["quick"]!.string)
             try prefs.save(to: preferencesURL)

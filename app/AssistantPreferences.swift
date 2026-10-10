@@ -7,7 +7,22 @@ struct AssistantPreferences: Codable, Equatable {
     var today = ""
     var todayDate = ""
     var greeting = ""
+    /// How the assistant names the owner, e.g. "Mehmet Başkan"; empty keeps "<ad> Bey".
+    var ownerTitle = ""
     var aliases: [String: String] = [:]
+
+    init() {}
+    /// Files saved before ownerTitle existed must keep loading.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        version = try c.decode(Int.self, forKey: .version)
+        general = try c.decode(String.self, forKey: .general)
+        today = try c.decode(String.self, forKey: .today)
+        todayDate = try c.decode(String.self, forKey: .todayDate)
+        greeting = try c.decode(String.self, forKey: .greeting)
+        ownerTitle = try c.decodeIfPresent(String.self, forKey: .ownerTitle) ?? ""
+        aliases = try c.decode([String: String].self, forKey: .aliases)
+    }
 
     static func dateKey(_ date: Date = Date()) -> String {
         let formatter = DateFormatter()
@@ -40,9 +55,10 @@ struct AssistantPreferences: Codable, Equatable {
     }
     func validated() throws -> AssistantPreferences {
         guard version == 1 else { throw Self.invalid("Bu ayar dosyasının sürümü desteklenmiyor.") }
-        for (text, limit, title) in [(general, 8000, "Genel talimat"), (today, 4000, "Bugünün notu"), (greeting, 500, "Karşılama")] {
+        for (text, limit, title) in [(general, 8000, "Genel talimat"), (today, 4000, "Bugünün notu"), (greeting, 500, "Karşılama"), (ownerTitle, 60, "Benden bahsederken")] {
             guard text.unicodeScalars.count <= limit, !text.contains("\0") else { throw Self.invalid("\(title) en fazla \(limit) karakter olabilir.") }
         }
+        guard !ownerTitle.contains(where: { $0.isNewline }) else { throw Self.invalid("Benden bahsederken alanı tek satır olmalı.") }
         if !today.isEmpty {
             guard todayDate.range(of: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$", options: .regularExpression) != nil else {
                 throw Self.invalid("Bugünün notunun tarihi geçersiz.")
