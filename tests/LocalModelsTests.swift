@@ -18,9 +18,20 @@ struct LocalModelsTests {
         try fm.createDirectory(at: hub.appendingPathComponent("models--bos--model/blobs"), withIntermediateDirectories: true)
         try fm.createDirectory(at: hub.appendingPathComponent("datasets--x--y/blobs"), withIntermediateDirectories: true)
 
+        // Shared-store layout: the model's blobs are links into hub/blobs; two links to one file count once.
+        let shared = hub.appendingPathComponent("blobs/ab")
+        try fm.createDirectory(at: shared, withIntermediateDirectories: true)
+        try Data(count: 7000).write(to: shared.appendingPathComponent("hash1"))
+        let linked = hub.appendingPathComponent("models--org--bagli-model/blobs")
+        try fm.createDirectory(at: linked, withIntermediateDirectories: true)
+        try fm.createSymbolicLink(atPath: linked.appendingPathComponent("x").path, withDestinationPath: "../../blobs/ab/hash1")
+        try fm.createSymbolicLink(atPath: linked.appendingPathComponent("y").path, withDestinationPath: "../../blobs/ab/hash1")
+
         let entries = LocalModels.installed(hub: hub)
-        check(entries.count == 1)
-        check(entries[0].repo == "org/ses-modeli" && entries[0].bytes == 5000 && entries[0].revision == "0123456789abcdef")
+        check(entries.count == 2)
+        let plain = entries.first { $0.repo == "org/ses-modeli" }!
+        check(plain.bytes == 5000 && plain.revision == "0123456789abcdef")
+        check(entries.first { $0.repo == "org/bagli-model" }?.bytes == 7000)
         check(LocalModels.installed(hub: root.appendingPathComponent("yok")).isEmpty)
 
         check(LocalModels.hubDirectory(environment: ["HF_HUB_CACHE": "/x/hub"], home: root).path == "/x/hub")
@@ -33,7 +44,7 @@ struct LocalModelsTests {
         try fm.createDirectory(at: venv.appendingPathComponent("lib/python3.12/site-packages/ema_lightning"), withIntermediateDirectories: true)
         check(LocalModels.packageVersion(venv: venv) == "1.0.1")
 
-        let text = LocalModels.describe(entries, packageVersion: "1.0.1")
+        let text = LocalModels.describe([plain], packageVersion: "1.0.1")
         check(text.contains("org/ses-modeli") && text.contains("sürüm 01234567") && text.contains("paket 1.0.1"))
         check(LocalModels.describe([], packageVersion: nil).contains("kurulu değil"))
 

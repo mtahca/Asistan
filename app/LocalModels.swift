@@ -23,9 +23,13 @@ enum LocalModels {
         return names.filter { $0.hasPrefix("models--") }.sorted().map { name in
             let folder = hub.appendingPathComponent(name)
             let repo = String(name.dropFirst("models--".count)).replacingOccurrences(of: "--", with: "/")
+            // Newer Hugging Face caches keep the real files in a shared hub/blobs store and link to them: follow links, count each file once.
             let blobs = (try? fm.contentsOfDirectory(atPath: folder.appendingPathComponent("blobs").path)) ?? []
+            var counted = Set<String>()
             let bytes = blobs.reduce(Int64(0)) { total, file in
-                let attributes = try? fm.attributesOfItem(atPath: folder.appendingPathComponent("blobs/" + file).path)
+                let real = folder.appendingPathComponent("blobs/" + file).resolvingSymlinksInPath()
+                guard counted.insert(real.path).inserted else { return total }
+                let attributes = try? fm.attributesOfItem(atPath: real.path)
                 return total + ((attributes?[.size] as? NSNumber)?.int64Value ?? 0)
             }
             let ref = folder.appendingPathComponent("refs/main")
