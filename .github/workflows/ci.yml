@@ -21,6 +21,14 @@ jobs:
         run: ASISTAN_PYTHON="$(which python)" bash test.sh
       - name: Uygulamayı derle
         run: ASISTAN_BUILD_OUTPUT="$RUNNER_TEMP/Asistan.app" bash build.sh
+      # Dağıtım imzası (Developer ID + hardened runtime) yolu geçici imzayla denenir; gerçek sertifika ve notarize yalnızca Mac'te sınanır.
+      - name: Dağıtım imzası (geçici kimlikle)
+        run: |
+          bash sign_app.sh "$RUNNER_TEMP/Asistan.app" -
+          for f in "$RUNNER_TEMP/Asistan.app" "$RUNNER_TEMP/Asistan.app/Contents/MacOS/asistan-speech" "$RUNNER_TEMP/Asistan.app/Contents/Resources/AsistanSes.driver"; do
+            codesign -dvv "$f" 2>&1 | grep -q "runtime" || { echo "Hardened runtime yok: $f"; exit 1; }
+          done
+          codesign -d --entitlements - "$RUNNER_TEMP/Asistan.app" 2>&1 | grep -q "device.audio-input"
       # Asistan Mobile'daki AsistanCanli/MobileProtocol.swift ile birebir aynı olmalı. Aynı adlı dal varsa onunla, yoksa varsayılan dalla karşılaştırılır.
       - name: Ortak protokol dosyasını karşılaştır
         run: |

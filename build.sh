@@ -17,6 +17,12 @@ cp agent.py llm.py live.py speech.py gemini_live.py setup.sh requirements.txt re
 ASISTAN_DRIVER_WORK="$BUILD_CACHE/driver" bash audio/build_driver.sh "$APP/Contents/Resources"
 rm -rf "$APP/Contents/Resources/vendor"
 cp -R vendor "$APP/Contents/Resources/vendor"
+if [ -n "${ASISTAN_SIGN_IDENTITY:-}" ]; then
+  # Dağıtım imzası (paketle.sh Developer ID bulursa bunu ayarlar): hardened runtime ve izin dosyası ile.
+  bash sign_app.sh "$APP" "$ASISTAN_SIGN_IDENTITY"
+  echo "Asistan derlendi: $(cd "$(dirname "$APP")" && pwd)/$(basename "$APP")"
+  exit 0
+fi
 # Use the stable local signing identity (make_cert.sh) when present, so permissions survive rebuilds.
 IDENT=$(/usr/bin/security find-identity -p codesigning 2>/dev/null | /usr/bin/awk '/AsistanLocal/ {print $2; exit}')
 if [ -z "$IDENT" ]; then IDENT="-"; echo "Uyarı: AsistanLocal kimliği yok; geçici imza kullanılıyor (bash make_cert.sh ile oluşturabilirsiniz)."; fi
