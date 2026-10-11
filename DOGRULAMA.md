@@ -1,5 +1,10 @@
 # Doğrulama
 
+## Dağıtım imzası (paketle.sh, sign_app.sh)
+- CI'da `sign_app.sh` geçici kimlikle çalışır ve uygulamada, konuşma yardımcısında ve sürücüde hardened runtime ile mikrofon izninin bulunduğunu doğrular. Gerçek Developer ID imzası ve notarize yalnızca Mac'te sınanır.
+- Mac'te sertifika hazırken: `ASISTAN_NOTARY_PROFILE=asistan-notary bash paketle.sh` hatasız bitmeli ve `spctl --assess --type execute -vv Asistan.app` "accepted, source=Notarized Developer ID" demeli.
+- Notarize paketi sınayın: Uygulamalar'a koyup açın, Mikrofon ve Rehber izin istemlerinin çıktığını, Ses ayarlarındaki "Ses sürücüsünü kur" düğmesinin yönetici parolasıyla çalıştığını, Sistem sesi kaydı izninin istendiğini ve gerçek bir aramada Asistan Dinleme'nin ses aldığını doğrulayın. Biri çalışmazsa `app/Asistan.entitlements` eksiktir.
+
 ## 0.9.0
 - Uygulamalar'daki Asistan açıkken derleme kopyasını açın: "Asistan zaten açık" uyarısı çıkar ve kopya kapanır. Derleme kopyası açıkken Uygulamalar'dakini açın: eski kopya kapanır, app.log'da "Başka bir Asistan kopyası açıktı; kapatılıyor" satırı görünür.
 - GPT-Live ve Gemini Live ile 3 dakikadan uzun bir görüşme yapın: bağlantı kopmamalı. Koparsa app.log'daki "bağlantısı koptu" satırında kapanış kodu ve son alım/gönderim/pong süreleri yazar.
