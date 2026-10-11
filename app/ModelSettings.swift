@@ -126,7 +126,7 @@ final class ModelSettingsController: NSObject, SettingsPane {
     func prepare() {
         let values = app.savedSettings()
         owner.stringValue = values["OWNER_NAME"] ?? "Mehmet"
-        let voiceMode = (try? BetaModelConfiguration.voiceMode(in: values)) ?? "local"
+        let voiceMode = (try? BetaModelConfiguration.voiceMode(in: values)) ?? BetaModelConfiguration.defaultVoiceMode
         choose(mode, id: voiceMode == "gemini-live" ? "gemini-live|" + ((try? BetaModelConfiguration.geminiModel(in: values)) ?? "gemini-3.8-live") : voiceMode)
         choose(liveVoice, id: (try? BetaModelConfiguration.liveVoice(in: values)) ?? "marin")
         choose(geminiVoice, id: (try? BetaModelConfiguration.geminiVoice(in: values)) ?? "Kore")

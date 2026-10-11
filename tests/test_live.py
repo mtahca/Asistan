@@ -48,7 +48,7 @@ class LiveTests(unittest.TestCase):
         self.assertIsNone(self.call().server_reason())
 
     def test_legacy_default_and_invalid_mode(self):
-        self.assertEqual(live.voice_mode({}),'local')
+        self.assertEqual(live.voice_mode({}),'gemini-live')
         self.assertEqual(live.voice_mode({'VOICE_MODE':'gpt-live'}),'gpt-live')
         with self.assertRaises(ValueError):live.voice_mode({'VOICE_MODE':'other'})
 

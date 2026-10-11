@@ -58,8 +58,10 @@ struct BetaModelConfiguration {
         return geminiModels.first { $0.model == model }?.title ?? model
     }
     static let voiceModes = ["local", "gpt-live", "gemini-live"]
+    /// Fresh installs use an online voice: no local models are downloaded until the user asks for them.
+    static let defaultVoiceMode = "gemini-live"
     static func voiceMode(in values: [String: String]) throws -> String {
-        let mode = values["VOICE_MODE"].flatMap { $0.isEmpty ? nil : $0 } ?? "local"
+        let mode = values["VOICE_MODE"].flatMap { $0.isEmpty ? nil : $0 } ?? defaultVoiceMode
         guard voiceModes.contains(mode) else { throw invalid("Ses modu geçersiz.") }
         return mode
     }

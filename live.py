@@ -37,7 +37,7 @@ def voice_name(values):
 
 
 def voice_mode(values):
-    mode = values.get('VOICE_MODE', '').strip() or 'local'
+    mode = values.get('VOICE_MODE', '').strip() or 'gemini-live'
     if mode not in ('local', 'gpt-live', 'gemini-live'):
         raise ValueError('Ses modu geçersiz. Model ayarlarını yeniden kaydedin.')
     return mode

@@ -12,7 +12,7 @@ swiftc -O -module-cache-path "$BUILD_CACHE" -o "$APP/Contents/MacOS/Asistan" app
 swiftc -O -parse-as-library -module-cache-path "$BUILD_CACHE" -o "$APP/Contents/MacOS/asistan-speech" helper/SpeechHelper.swift
 cp app/Info.plist "$APP/Contents/Info.plist"
 iconutil -c icns app/AppIcon.iconset -o "$APP/Contents/Resources/AppIcon.icns"
-cp agent.py llm.py live.py speech.py gemini_live.py setup.sh requirements.txt requirements.lock requirements-online.lock "$APP/Contents/Resources/"
+cp agent.py llm.py live.py speech.py gemini_live.py local_models.py setup.sh requirements.txt requirements.lock requirements-online.lock "$APP/Contents/Resources/"
 # Sanal ses sürücüsü (Asistan Sanal Çıkış / Asistan Sanal Mikrofon); Ses ayarlarından kurulur.
 ASISTAN_DRIVER_WORK="$BUILD_CACHE/driver" bash audio/build_driver.sh "$APP/Contents/Resources"
 rm -rf "$APP/Contents/Resources/vendor"

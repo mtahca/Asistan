@@ -40,7 +40,8 @@ import Foundation
             do { _ = try BetaModelConfiguration.choices(in: values); preconditionFailure("Invalid provider/model accepted") } catch { count += 1 }
         }
         check(try BetaModelChoice.parse("openai:gpt-6.1-sol").provider == "openai")
-        check(try BetaModelConfiguration.voiceMode(in: [:]) == "local")
+        check(try BetaModelConfiguration.voiceMode(in: [:]) == "gemini-live")
+        check(try BetaModelConfiguration.voiceMode(in: ["VOICE_MODE":"local"]) == "local")
         var live = ["VOICE_MODE":"gpt-live", "ANTHROPIC_API_KEY":"private-anthropic-example-key"]
         check(try BetaModelConfiguration.requiredProviders(in: live) == ["anthropic", "openai"])
         check(try BetaModelConfiguration.missingCredentials(in: live) == ["openai"])

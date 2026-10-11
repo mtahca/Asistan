@@ -23,6 +23,10 @@ step deps start
 LOCK="$RES/requirements.lock"
 if [ "$MODE" = "gpt-live" ]; then LOCK="$RES/requirements-online.lock"; fi
 "$DATA/bin/uv" pip install --python "$DATA/.venv/bin/python" -r "$LOCK"
+# Versions the user updated from the setup screen survive a repair/reinstall.
+if [ "$MODE" = "local" ] && [ -f "$DATA/local_overrides.txt" ]; then
+  "$DATA/bin/uv" pip install --python "$DATA/.venv/bin/python" -r "$DATA/local_overrides.txt"
+fi
 step deps ok
 if [ "$MODE" = "gpt-live" ]; then
   "$DATA/.venv/bin/python" -B -c 'import numpy, sounddevice, httpx, anthropic, websocket'
@@ -32,21 +36,7 @@ if [ "$MODE" = "gpt-live" ]; then
 fi
 step models start
 # Verify BOTH local speech engines; a failed download must not appear as success.
-ASISTAN_HOME="$DATA" ASISTAN_RES="$RES" "$DATA/.venv/bin/python" -B - <<'PY'
-import os, sys, importlib.util
-import numpy as np
-from pathlib import Path
-path = Path(os.environ['ASISTAN_RES']) / 'agent.py'
-sys.path.insert(0, str(path.parent))
-spec = importlib.util.spec_from_file_location('asistan_setup', path)
-agent = importlib.util.module_from_spec(spec); sys.modules[spec.name] = agent; spec.loader.exec_module(agent)
-import mlx_whisper
-mlx_whisper.transcribe(np.zeros(16000, dtype=np.float32), path_or_hf_repo=agent.WHISPER_MODEL, language='tr', verbose=None)
-from ema_lightning import EMA
-speech = EMA(device='cpu').say('Merhaba.', sample_rate=48000)
-assert len(speech.audio) > 0
-print('Konuşma tanıma ve ses üretimi doğrulandı.')
-PY
+ASISTAN_HOME="$DATA" ASISTAN_RES="$RES" "$DATA/.venv/bin/python" -B "$RES/local_models.py" verify
 step models ok
 touch "$DATA/.deps_ok"
 step done ok

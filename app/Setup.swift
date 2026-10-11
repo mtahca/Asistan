@@ -18,6 +18,11 @@ final class SetupController: NSObject, NSWindowDelegate, SettingsPane {
     var checkProcess: Process?
     var checkedSettings: String?
     var checkGeneration = UUID()
+    var localButtons: [NSButton] = []
+    var localCheckButton: NSButton!
+    var localUpdateButton: NSButton!
+    var localBusy = false
+    var localUpdateAvailable = false
     init(app: AppDelegate) { self.app = app; super.init(); build() }
     func label(_ text: String, at rect: NSRect, in parent: NSView, bold: Bool = false) -> NSTextField {
         let field = NSTextField(wrappingLabelWithString: text)
@@ -74,6 +79,16 @@ final class SetupController: NSObject, NSWindowDelegate, SettingsPane {
         _ = label("İsteğe bağlıdır. Odak durumu okunamıyorsa Tam Disk Erişimi gerekebilir. Bu izin mobil bağlantı, ses ve elle cevaplama için gerekmez. Duraklatma açıkken otomatik cevap verilmez.", at: NSRect(x: 12, y: 60, width: 536, height: 80), in: remote)
         _ = button("Odak ayarlarını aç…", action: #selector(mobileSettings), at: NSRect(x: 12, y: 16, width: 310, height: 32), in: remote)
         remoteTab.view = remote; tabs.addTabViewItem(remoteTab)
+        let localTab = NSTabViewItem(identifier: "local"); localTab.label = "Yerel modeller"
+        let local = NSView(frame: page.frame)
+        _ = label("Yerel ses modelleri", at: NSRect(x: 12, y: 490, width: 536, height: 28), in: local, bold: true)
+        _ = label("Gemini Live veya GPT-Live kullanırken gerekmez ve ilk kurulumda indirilmez. “Yerel ses” modunu kullanmak isterseniz buradan kurun (yaklaşık 3 GB indirir). Yeni sürümler için denetleyip güncelleyebilirsiniz; güncelleme sınanır, başarısız olursa eski sürüme dönülür.", at: NSRect(x: 12, y: 410, width: 536, height: 72), in: local)
+        labels["localmodels"] = label("", at: NSRect(x: 12, y: 280, width: 536, height: 120), in: local)
+        localButtons.append(button("Yerel modelleri kur (internet gerekir)", action: #selector(installLocal), at: NSRect(x: 12, y: 238, width: 300, height: 30), in: local))
+        localCheckButton = button("Güncellemeleri denetle", action: #selector(checkLocalUpdates), at: NSRect(x: 12, y: 198, width: 300, height: 30), in: local)
+        localUpdateButton = button("Güncelle", action: #selector(updateLocal), at: NSRect(x: 324, y: 198, width: 224, height: 30), in: local)
+        labels["localcheck"] = label("", at: NSRect(x: 12, y: 80, width: 536, height: 108), in: local)
+        localTab.view = local; tabs.addTabViewItem(localTab)
         window.contentView!.addSubview(tabs)
         feedback = label("", at: NSRect(x: 24, y: 10, width: 392, height: 44), in: window.contentView!)
         finishButton = button("Başlat / Kapat", action: #selector(finish), at: NSRect(x: 430, y: 14, width: 166, height: 32), in: window.contentView!)
@@ -109,7 +124,7 @@ final class SetupController: NSObject, NSWindowDelegate, SettingsPane {
         else { labels["detail"]?.stringValue = ready ? "Arama karşılamaya hazır. Model bağlantısını aşağıdan ayrıca sınayabilirsiniz." : (!status.perms ? "Erişilebilirlik ve mikrofon izinlerini tamamlayın. İşaretler çalışan uygulamanın kullandığı izni gösterir." : (!status.audio ? "Eksik ses aygıtlarını Ses ayarları bölümünden kurun." : (!status.py ? "Önce yerel konuşma ortamını kurun." : (!status.key ? "Seçili modellerin anahtarlarını Modeller ve API anahtarları bölümünden girin." : (app.agentFailure ?? app.preparationText))))) }
         func mark(_ good: Bool) -> String { good ? "✓ " : "○ " }
         labels["audio"]?.stringValue = mark(namedAudioDevice(BetaAudio.listenName, input: true) != nil) + "Asistan Dinleme\n" + mark(namedAudioDevice(BetaAudio.playbackName, input: false) != nil) + BetaAudio.playbackName + "\n" + mark(namedAudioDevice(BetaAudio.microphoneName, input: true) != nil) + BetaAudio.microphoneName
-        let voiceMode = (try? BetaModelConfiguration.voiceMode(in: values)) ?? "local"
+        let voiceMode = (try? BetaModelConfiguration.voiceMode(in: values)) ?? BetaModelConfiguration.defaultVoiceMode
         let online = voiceMode != "local", gemini = voiceMode == "gemini-live"
         let localModelState = online ? (gemini ? "Gemini Live" : "GPT-Live") + " · yerel ses modeli gerekmez" : (app.localModelsReady ? "✓ Konuşma tanıma ve Türkçe ses sınandı" : (app.agent?.isRunning == true && app.agentFailure == nil ? "… Yerel modeller hazırlanıyor" : "○ Modeller başlatıldığında sınanır"))
         labels["py"]?.stringValue = mark(status.py) + (online ? "Ses bağlantısı ortamı\n" : "Yerel konuşma ortamı\n") + localModelState
@@ -127,7 +142,13 @@ final class SetupController: NSObject, NSWindowDelegate, SettingsPane {
         let ax = AXIsProcessTrusted(), mic = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
         let contacts = CNContactStore.authorizationStatus(for: .contacts) == .authorized
         labels["perms"]?.stringValue = mark(ax) + "Erişilebilirlik · " + mark(mic) + "Mikrofon\nRehber: " + (contacts ? "izinli" : "isteğe bağlı; gerekli değil")
-        installButton.isEnabled = !installing && !checkingAPI && !app.busy && !(app.agent?.isRunning ?? false)
+        let hub = LocalModels.hubDirectory()
+        labels["localmodels"]?.stringValue = LocalModels.describe(LocalModels.installed(hub: hub), packageVersion: LocalModels.packageVersion(venv: app.projectDir.appendingPathComponent(".venv")))
+        let localIdle = !installing && !checkingAPI && !localBusy && !app.busy && !(app.agent?.isRunning ?? false)
+        localButtons.forEach { $0.isEnabled = localIdle }
+        localCheckButton.isEnabled = localIdle && FileManager.default.isExecutableFile(atPath: app.projectDir.appendingPathComponent(".venv/bin/python").path)
+        localUpdateButton.isEnabled = localCheckButton.isEnabled && localUpdateAvailable
+        installButton.isEnabled = !installing && !localBusy && !checkingAPI && !app.busy && !(app.agent?.isRunning ?? false)
         installButton.title = installing ? "Kuruluyor…" : (status.py ? (online ? "Ses bağlantısı ortamını onar" : "Ortamı onar / modelleri sına") : "Ortamı kur (internet gerekir)")
         testButton.isEnabled = status.py && status.key && !app.busy && !installing && !checkingAPI
         testButton.title = checkingAPI ? "Bağlantı sınanıyor…" : "Seçili modellerin bağlantısını sına"
@@ -185,11 +206,13 @@ final class SetupController: NSObject, NSWindowDelegate, SettingsPane {
             }
         } catch { checkingAPI = false; checkProcess = nil; feedback.stringValue = "Bağlantı testi başlatılamadı."; refresh() }
     }
-    @objc func runInstall() {
-        guard !installing, !checkingAPI, !app.busy, !(app.agent?.isRunning ?? false) else { return }
+    @objc func runInstall() { runSetup(mode: (try? BetaModelConfiguration.voiceMode(in: app.savedSettings())) ?? BetaModelConfiguration.defaultVoiceMode) }
+    @objc func installLocal() { runSetup(mode: "local") }
+    func runSetup(mode: String) {
+        guard !installing, !checkingAPI, !localBusy, !app.busy, !(app.agent?.isRunning ?? false) else { return }
         installing = true; refresh()
         let process = Process(); process.executableURL = URL(fileURLWithPath: "/bin/bash")
-        process.arguments = [app.resDir.appendingPathComponent("setup.sh").path, app.projectDir.path, app.resDir.path, (try? BetaModelConfiguration.voiceMode(in: app.savedSettings())) ?? "local"]
+        process.arguments = [app.resDir.appendingPathComponent("setup.sh").path, app.projectDir.path, app.resDir.path, mode]
         var env = ProcessInfo.processInfo.environment; env["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin"; env["HOME"] = NSHomeDirectory(); process.environment = env
         let pipe = Pipe(); process.standardOutput = pipe; process.standardError = pipe
         pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
@@ -200,12 +223,63 @@ final class SetupController: NSObject, NSWindowDelegate, SettingsPane {
         process.terminationHandler = { [weak self] result in
             DispatchQueue.main.async {
                 guard let self = self else { return }; self.installing = false
-                self.feedback.stringValue = result.terminationStatus == 0 ? "Ortam kuruldu. Asistan’ı başlatabilirsiniz." : "Kurulum tamamlanamadı. Ayrıntılar sekmesine bakın."
+                self.feedback.stringValue = result.terminationStatus == 0 ? (mode == "local" ? "Yerel modeller kuruldu. Modeller ekranından “Yerel ses” modunu seçebilirsiniz." : "Ortam kuruldu. Asistan’ı başlatabilirsiniz.") : "Kurulum tamamlanamadı. Ayrıntılar sekmesine bakın."
                 self.refresh()
             }
         }
         do { try process.run(); log("Kurulum başladı…\n"); feedback.stringValue = "İlerleme Kurulum ayrıntıları sekmesinde." }
         catch { installing = false; feedback.stringValue = "Kurulum başlatılamadı."; refresh() }
+    }
+    func runLocalTool(_ arguments: [String], busyText: String, done: @escaping (Int32, String) -> Void) {
+        let python = app.projectDir.appendingPathComponent(".venv/bin/python")
+        guard !localBusy, FileManager.default.isExecutableFile(atPath: python.path) else { return }
+        localBusy = true; feedback.stringValue = busyText; refresh()
+        let process = Process(); process.executableURL = python
+        process.arguments = ["-B", "-u", app.resDir.appendingPathComponent("local_models.py").path] + arguments
+        var env = ProcessInfo.processInfo.environment
+        env["ASISTAN_HOME"] = app.projectDir.path; env["ASISTAN_RES"] = app.resDir.path
+        env["ASISTAN_UV"] = app.projectDir.appendingPathComponent("bin/uv").path
+        process.environment = env; process.currentDirectoryURL = app.projectDir
+        let pipe = Pipe(); process.standardOutput = pipe; process.standardError = pipe
+        DispatchQueue.global().async { [weak self] in
+            do { try process.run() } catch {
+                DispatchQueue.main.async { self?.localBusy = false; self?.feedback.stringValue = "Araç başlatılamadı."; self?.refresh() }
+                return
+            }
+            let data = pipe.fileHandleForReading.readDataToEndOfFile(); process.waitUntilExit()
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                self.localBusy = false
+                done(process.terminationStatus, String(decoding: data, as: UTF8.self))
+                self.refresh()
+            }
+        }
+    }
+    @objc func checkLocalUpdates() {
+        runLocalTool(["check"], busyText: "Yeni sürümler denetleniyor…") { [weak self] status, output in
+            guard let self = self else { return }
+            let line = output.split(separator: "\n").last.map(String.init) ?? ""
+            if status == 0, let data = line.data(using: .utf8), let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                let summary = LocalModels.updateSummary(json)
+                self.localUpdateAvailable = summary.available
+                self.labels["localcheck"]?.stringValue = summary.text
+                self.feedback.stringValue = summary.available ? "Yerel modeller için güncelleme var." : "Denetim bitti."
+            } else {
+                self.localUpdateAvailable = false
+                self.labels["localcheck"]?.stringValue = "Denetim başarısız. Ayrıntılar sekmesine bakın."
+                self.log(output)
+            }
+        }
+    }
+    @objc func updateLocal() {
+        guard localUpdateAvailable else { return }
+        runLocalTool(["update"], busyText: "Güncelleniyor ve sınanıyor; birkaç dakika sürebilir…") { [weak self] status, output in
+            guard let self = self else { return }
+            self.log(output)
+            self.localUpdateAvailable = status != 0
+            self.labels["localcheck"]?.stringValue = status == 0 ? "Güncellendi ve sınandı." : "Güncelleme başarısız; önceki sürüme dönüldü. Ayrıntılar sekmesine bakın."
+            self.feedback.stringValue = status == 0 ? "Yerel modeller güncellendi." : "Güncelleme tamamlanamadı."
+        }
     }
     @objc func finish() {
         guard !installing, !app.busy else { return }

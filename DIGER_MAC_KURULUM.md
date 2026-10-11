@@ -12,7 +12,7 @@ ZIP yalnızca uygulamayı içerir. API anahtarları, notlar, kişiselleştirme, 
 
 1. ZIP'i diğer Mac'e aktarıp açın. **Asistan.app** dosyasını **Uygulamalar** klasörüne sürükleyin. İlk açılıştan önce taşıyın; ZIP içinden veya geçici bir klasörden çalıştırmayın.
 2. Uygulamalar'dan Asistan'a çift tıklayın. Asistan menü çubuğunda çalışır. Pencere kapanırsa uygulamaya yeniden çift tıklayarak **Kurulum ve durum** ekranını açabilirsiniz. Üstte **Sürüm 0.9.0 · Derleme 36** (ya da kurduğunuz sürüm) görünmelidir.
-3. **Ortamı kur (internet gerekir)** düğmesine basın. Python 3.12, gerekli paketler, Whisper konuşma tanıma modeli ve Türkçe EMA ses modeli indirilir. İlerlemeyi **Kurulum ayrıntıları** sekmesinden izleyin ve **Ortam kuruldu** mesajını bekleyin.
+3. **Ortamı kur (internet gerekir)** düğmesine basın. Python 3.12 ve çevrimiçi ses için gereken hafif paketler kurulur; Whisper ve EMA gibi yerel modeller indirilmez. Yerel ses isterseniz sonra **Yerel modeller** sekmesinden **Yerel modelleri kur** düğmesine basın. İlerlemeyi **Kurulum ayrıntıları** sekmesinden izleyin ve **Ortam kuruldu** mesajını bekleyin.
 4. **Modeller ve API anahtarları…** ekranında görüşme ve özet modelini seçip gereken Anthropic ve/veya OpenAI anahtarını girin. Anahtarlar ve kişiselleştirme ayarları paketle taşınmaz.
 5. **Ses ayarları…** ekranında **Ses sürücüsünü kur** düğmesine basın ve yönetici parolasını girin. **Sistem sesi kaydetme** iznini verin (gerekirse Mac'i yeniden başlatın). FaceTime/WhatsApp/Telefon mikrofonunu **Asistan Sanal Mikrofon** seçin; hoparlörü gerçek hoparlör veya kulaklık olarak bırakın. Loopback ve BlackHole gerekmez.
 6. **İzinleri iste** düğmesiyle mikrofon ve erişilebilirlik izinlerini tamamlayın. Rehber izni isteğe bağlıdır. Erişilebilirlik listesinde **Uygulamalar'daki Asistan** görünmelidir.
@@ -75,7 +75,7 @@ Aşağıdaki talimatı diğer bilgisayardaki bir yapay zekâ kodlama asistanına
 
 ## GPT-Live 1 modu
 
-Varsayılan yerel moddur. Kurulumdan önce **Modeller ve API anahtarları** ekranında **Ses modu → Çevrimiçi ses — GPT-Live 1** seçebilirsiniz. GPT-Live için OpenAI anahtarı gerekir; arka plan/özet için Claude seçiliyse Anthropic anahtarı da gerekir. Bu modda kurulum yalnızca ses bağlantısı ortamını hazırlar; Whisper ve EMA indirilmez. Sonradan yerel moda dönerseniz tam kurulum gerekir. GPT-Live modunda görüşme sesi OpenAI'ye gider.
+Varsayılan ses modu **Gemini Live**'dır (0.9.1 ve sonrası). Başka bir mod için **Modeller ve API anahtarları** ekranında **Ses modu**nu değiştirebilirsiniz. GPT-Live için OpenAI anahtarı gerekir; arka plan/özet için Claude seçiliyse Anthropic anahtarı da gerekir. Bu modda kurulum yalnızca ses bağlantısı ortamını hazırlar; Whisper ve EMA indirilmez. Sonradan yerel moda dönerseniz tam kurulum gerekir. GPT-Live modunda görüşme sesi OpenAI'ye gider.
 
 ## Asistan Mobile ve Odak
 
