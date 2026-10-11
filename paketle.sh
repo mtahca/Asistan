@@ -35,8 +35,8 @@ elif [ -n "$ASISTAN_SIGN_IDENTITY" ]; then
 else
   NOTE="Yerel imzalı, notarize edilmemiş: diğer Mac'te DIGER_MAC_KURULUM.md içindeki karantina adımı gerekir."
 fi
-# ditto, uygulama paketinin izinlerini ve imzasını korur.
-ditto -c -k --keepParent Asistan.app "$ZIP"
+# ditto, uygulama paketinin izinlerini ve imzasını korur. Kaynak çatalı ve genişletilmiş öznitelikler dışarıda bırakılır: zip içinde "._" dosyası olmaz, komut satırı unzip imzayı bozmaz.
+ditto -c -k --keepParent --norsrc --noextattr Asistan.app "$ZIP"
 echo "Hazır: $(pwd)/$ZIP"
 echo "$NOTE"
 echo "Diğer Mac'te: ZIP'i açın, Asistan.app'i Uygulamalar'a taşıyın (adımlar DIGER_MAC_KURULUM.md içinde)."
