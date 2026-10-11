@@ -21,7 +21,7 @@ import Foundation
         func check(_ result: Bool) { precondition(result); count += 1 }
         let legacy = try BetaModelConfiguration.choices(in: ["CLAUDE_MODEL":"claude-sonnet-5-5"])
         check(legacy.conversation == legacy.summary && legacy.conversation.provider == "anthropic")
-        let openai = ["LLM_PROVIDER":"openai", "OPENAI_MODEL":"gpt-6-luna", "OPENAI_API_KEY":"private-openai-example-key"]
+        let openai = ["VOICE_MODE":"local", "LLM_PROVIDER":"openai", "OPENAI_MODEL":"gpt-6-luna", "OPENAI_API_KEY":"private-openai-example-key"]
         check(try BetaModelConfiguration.missingCredentials(in: openai).isEmpty)
         var mixed = openai; mixed["SUMMARY_PROVIDER"] = "anthropic"; mixed["SUMMARY_MODEL"] = "claude-sonnet-5-5"
         check(try BetaModelConfiguration.missingCredentials(in: mixed) == ["anthropic"])
@@ -40,7 +40,8 @@ import Foundation
             do { _ = try BetaModelConfiguration.choices(in: values); preconditionFailure("Invalid provider/model accepted") } catch { count += 1 }
         }
         check(try BetaModelChoice.parse("openai:gpt-6.1-sol").provider == "openai")
-        check(try BetaModelConfiguration.voiceMode(in: [:]) == "local")
+        check(try BetaModelConfiguration.voiceMode(in: [:]) == "gemini-live")
+        check(try BetaModelConfiguration.voiceMode(in: ["VOICE_MODE":"local"]) == "local")
         var live = ["VOICE_MODE":"gpt-live", "ANTHROPIC_API_KEY":"private-anthropic-example-key"]
         check(try BetaModelConfiguration.requiredProviders(in: live) == ["anthropic", "openai"])
         check(try BetaModelConfiguration.missingCredentials(in: live) == ["openai"])
@@ -74,9 +75,9 @@ import Foundation
         check(try BetaModelConfiguration.geminiModel(in: ["GEMINI_LIVE_MODEL":"gemini-3.1-flash-live-preview"]) == "gemini-3.8-live")
         check(BetaModelConfiguration.geminiModelTitle(in: ["GEMINI_LIVE_MODEL":"gemini-3.1-flash-live-preview"]) == "Gemini 3.8 Live")
         check(BetaModelConfiguration.geminiModels.count == 1)
-        let deepgram = ["STT_BACKEND":"deepgram", "ANTHROPIC_API_KEY":"private-anthropic-example-key"]
+        let deepgram = ["VOICE_MODE":"local", "STT_BACKEND":"deepgram", "ANTHROPIC_API_KEY":"private-anthropic-example-key"]
         check(try BetaModelConfiguration.requiredProviders(in: deepgram) == ["anthropic", "deepgram"])
-        check(try BetaModelConfiguration.requiredProviders(in: ["STT_BACKEND":"apple"]) == ["anthropic"])
+        check(try BetaModelConfiguration.requiredProviders(in: ["VOICE_MODE":"local", "STT_BACKEND":"apple"]) == ["anthropic"])
         check(try BetaModelConfiguration.requiredProviders(in: ["STT_BACKEND":"deepgram", "VOICE_MODE":"gpt-live"]) == ["anthropic", "openai"])
         let newKeys2 = try BetaModelConfiguration.updatingCredentials(keys, with: ["DEEPGRAM_API_KEY":"private-deepgram-example-key", "GEMINI_API_KEY":"AIza-private-example-gemini-key"])
         check(BetaModelConfiguration.values(in: newKeys2)["DEEPGRAM_API_KEY"] == "private-deepgram-example-key")

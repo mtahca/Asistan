@@ -277,7 +277,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let audio = loopbackAudioReady()
         let fm = FileManager.default
         let pyExe = fm.isExecutableFile(atPath: projectDir.appendingPathComponent(".venv/bin/python").path)
-        let mode = (try? BetaModelConfiguration.voiceMode(in: savedSettings())) ?? "local"
+        let mode = (try? BetaModelConfiguration.voiceMode(in: savedSettings())) ?? BetaModelConfiguration.defaultVoiceMode
         let marker = fm.fileExists(atPath: projectDir.appendingPathComponent(".deps_ok").path) || (mode != "local" && fm.fileExists(atPath: projectDir.appendingPathComponent(".deps_ok_online").path))
         let py = pyExe && marker
         let values = savedSettings()
@@ -300,7 +300,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func modelEnvironment() -> [String: String] {
         var env = ProcessInfo.processInfo.environment
         let values = savedSettings()
-        for (key, fallback) in [("VOICE_MODE", "local"), ("LLM_PROVIDER", "anthropic"), ("CLAUDE_MODEL", "claude-haiku-4-5"),
+        for (key, fallback) in [("VOICE_MODE", BetaModelConfiguration.defaultVoiceMode), ("LLM_PROVIDER", "anthropic"), ("CLAUDE_MODEL", "claude-haiku-4-5"),
                                 ("OPENAI_MODEL", "gpt-6-luna"), ("SUMMARY_PROVIDER", ""), ("SUMMARY_MODEL", "")] {
             env[key] = values[key] ?? fallback
         }

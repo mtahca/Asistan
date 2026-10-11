@@ -29,4 +29,6 @@ swiftc -module-cache-path "$TEST_BUILD/cache" app/MenuRoute.swift tests/MenuRout
 "$TEST_BUILD/menu-route-tests"
 swiftc -module-cache-path "$TEST_BUILD/cache" app/SingleInstance.swift tests/SingleInstanceTests.swift -o "$TEST_BUILD/single-instance-tests"
 "$TEST_BUILD/single-instance-tests"
+swiftc -module-cache-path "$TEST_BUILD/cache" app/LocalModels.swift tests/LocalModelsTests.swift -o "$TEST_BUILD/local-models-tests"
+"$TEST_BUILD/local-models-tests"
 for script in build.sh setup.sh test.sh make_cert.sh paketle.sh sign_app.sh audio/build_driver.sh; do bash -n "$script"; done
